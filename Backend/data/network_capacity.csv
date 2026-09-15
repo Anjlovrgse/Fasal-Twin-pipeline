@@ -1,0 +1,17 @@
+node_id,node_name,node_type,district,capacity_tonnes,lat,lon
+F1,Kainakary Paddy Farmers Producer Org,fpo,Alappuzha,500,9.4667,76.3833
+F2,Champakulam Rice Farmers Society,fpo,Alappuzha,600,9.4083,76.4167
+F3,Nedumudi Paddy Producers Union,fpo,Alappuzha,550,9.4333,76.4
+F4,Pulincunnoo Agro FPO,fpo,Alappuzha,450,9.445,76.46
+F5,Kumarakom Agro Samithi,fpo,Kottayam,500,9.6175,76.4302
+F6,Vaikom Paddy Producers Group,fpo,Kottayam,400,9.749,76.396
+M1,Alappuzha Principal Agricultural Mandi,mandi,Alappuzha,1200,9.4981,76.3388
+M2,Harippad Regulated Agricultural Market,mandi,Alappuzha,800,9.2783,76.4583
+M3,Changanassery Central Agricultural Market,mandi,Kottayam,1100,9.4447,76.54
+M4,Kottayam Regulated Agri Market,mandi,Kottayam,950,9.5916,76.5222
+S1,Supplyco Central Paddy Storage Thakazhy,storage,Alappuzha,2500,9.3833,76.4333
+S2,KSWC Warehouse Ambalapuzha,storage,Alappuzha,2000,9.38,76.36
+S3,Supplyco Modern Silo Kottayam,storage,Kottayam,3000,9.58,76.53
+P1,Supplyco Modern Rice Mill Kalavoor,processor,Alappuzha,1800,9.56,76.33
+P2,Kuttanad Agro Rice Processing Mill Mankombu,processor,Alappuzha,1500,9.42,76.45
+P3,Kottayam District Paddy Processing Mill Ettumanoor,processor,Kottayam,1600,9.668,76.562

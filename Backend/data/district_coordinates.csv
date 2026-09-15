@@ -1,0 +1,51 @@
+district,state,lat,lon,source
+Alappuzha,Kerala,9.4981,76.3388,Census 2011 District Centroids
+Kottayam,Kerala,9.5916,76.5222,Census 2011 District Centroids
+Palakkad,Kerala,10.7867,76.6548,Census 2011 District Centroids
+Thrissur,Kerala,10.5276,76.2144,Census 2011 District Centroids
+Ernakulam,Kerala,9.9816,76.2999,Census 2011 District Centroids
+Idukki,Kerala,9.9189,77.1025,Census 2011 District Centroids
+Wayanad,Kerala,11.6854,76.132,Census 2011 District Centroids
+Kozhikode,Kerala,11.2588,75.7804,Census 2011 District Centroids
+Malappuram,Kerala,11.051,76.0711,Census 2011 District Centroids
+Kannur,Kerala,11.8745,75.3704,Census 2011 District Centroids
+Kasaragod,Kerala,12.4996,74.9869,Census 2011 District Centroids
+Kollam,Kerala,8.8932,76.6141,Census 2011 District Centroids
+Pathanamthitta,Kerala,9.2648,76.787,Census 2011 District Centroids
+Thiruvananthapuram,Kerala,8.5241,76.9366,Census 2011 District Centroids
+Ludhiana,Punjab,30.901,75.8573,Survey of India District Centroids
+Patiala,Punjab,30.3398,76.3869,Survey of India District Centroids
+Sangrur,Punjab,30.2458,75.8421,Survey of India District Centroids
+Firozpur,Punjab,30.9237,74.6065,Survey of India District Centroids
+Amritsar,Punjab,31.634,74.8723,Survey of India District Centroids
+Karnal,Haryana,29.6857,76.9905,Survey of India District Centroids
+Kurukshetra,Haryana,29.9695,76.8783,Survey of India District Centroids
+Ambala,Haryana,30.3782,76.7767,Survey of India District Centroids
+Kaithal,Haryana,29.8015,76.3996,Survey of India District Centroids
+Bardhaman,West Bengal,23.2324,87.8615,Survey of India District Centroids
+Hooghly,West Bengal,22.9056,88.3965,Survey of India District Centroids
+Murshidabad,West Bengal,24.1759,88.2802,Survey of India District Centroids
+Birbhum,West Bengal,23.8427,87.6186,Survey of India District Centroids
+East Godavari,Andhra Pradesh,16.9891,82.2475,Survey of India District Centroids
+West Godavari,Andhra Pradesh,16.7107,81.0952,Survey of India District Centroids
+Krishna,Andhra Pradesh,16.1875,81.1389,Survey of India District Centroids
+Nalgonda,Telangana,17.0575,79.2689,Survey of India District Centroids
+Nizamabad,Telangana,18.6725,78.0941,Survey of India District Centroids
+Karimnagar,Telangana,18.4386,79.1288,Survey of India District Centroids
+Thanjavur,Tamil Nadu,10.787,79.1378,Survey of India District Centroids
+Tiruvarur,Tamil Nadu,10.7725,79.6367,Survey of India District Centroids
+Nagapattinam,Tamil Nadu,10.7672,79.8424,Survey of India District Centroids
+Madurai,Tamil Nadu,9.9252,78.1198,Survey of India District Centroids
+Varanasi,Uttar Pradesh,25.3176,82.9739,Survey of India District Centroids
+Gorakhpur,Uttar Pradesh,26.7606,83.3732,Survey of India District Centroids
+Prayagraj,Uttar Pradesh,25.4358,81.8463,Survey of India District Centroids
+Bareilly,Uttar Pradesh,28.367,79.4304,Survey of India District Centroids
+Bargarh,Odisha,21.3333,83.6167,Survey of India District Centroids
+Sambalpur,Odisha,21.4669,83.9812,Survey of India District Centroids
+Cuttack,Odisha,20.4625,85.8828,Survey of India District Centroids
+Patna,Bihar,25.5941,85.1376,Survey of India District Centroids
+Rohtas,Bihar,24.9547,84.0152,Survey of India District Centroids
+Nalanda,Bihar,25.1982,85.5149,Survey of India District Centroids
+Nashik,Maharashtra,19.9975,73.7898,Survey of India District Centroids
+Pune,Maharashtra,18.5204,73.8567,Survey of India District Centroids
+Nagpur,Maharashtra,21.1458,79.0882,Survey of India District Centroids

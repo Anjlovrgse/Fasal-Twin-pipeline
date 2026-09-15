@@ -1,0 +1,16 @@
+# Render Infrastructure-as-Code blueprint for Fasal Twin Backend
+services:
+  - type: web
+    name: fasal-twin-backend
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn src.api:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ALLOWED_ORIGINS
+        value: "http://localhost:3000,http://localhost:5173,https://fasal-twin.onrender.com"
+      - key: LOG_LEVEL
+        value: info
+    healthCheckPath: /health
+    autoDeploy: true

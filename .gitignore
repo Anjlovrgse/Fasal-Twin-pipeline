@@ -1,0 +1,13 @@
+# Root-level gitignore — catches anything not caught by subdirectory gitignores
+__pycache__/
+*.py[cod]
+.env
+.env.local
+*.local
+node_modules/
+dist/
+.venv/
+venv/
+*.log
+.DS_Store
+Thumbs.db
