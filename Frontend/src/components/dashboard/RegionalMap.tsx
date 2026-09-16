@@ -26,6 +26,17 @@ const TERRAIN_TILES = HAS_MAPTILER_KEY
   ? `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPTILER_KEY}`
   : null;
 
+// Last-resort style requiring zero network calls: a flat "instrument panel" canvas
+// so the map region can never render fully blank, even with no internet reachability
+// at all (both MapTiler and the demotiles.maplibre.org fallback unreachable).
+const OFFLINE_STYLE = {
+  version: 8 as const,
+  sources: {},
+  layers: [
+    { id: 'background', type: 'background' as const, paint: { 'background-color': '#eef1ea' } },
+  ],
+};
+
 // ── Per-layer async state shape ──────────────────────────────────────────────
 interface LayerState<T> {
   loading: boolean;
@@ -58,12 +69,20 @@ export const RegionalMap = () => {
   // ── Layer toggle booleans ──────────────────────────────────────────────────
   const [layers, setLayers] = useState({ health: false, price: false, weather: false });
 
-  // If the MapTiler style/terrain fails to load (network issue, rate limit, bad key),
-  // fall back to the free offline-capable demo style rather than leaving a blank map —
-  // the map must never show nothing, the same principle applied to backend failures.
-  const [mapStyleFailed, setMapStyleFailed] = useState(false);
-  const effectiveMapStyle = mapStyleFailed ? 'https://demotiles.maplibre.org/style.json' : MAP_STYLE;
-  const showTerrain = HAS_MAPTILER_KEY && !mapStyleFailed;
+  // Three-tier map style fallback so the map canvas can never render fully blank:
+  // 'primary' (MapTiler) -> 'demo' (demotiles.maplibre.org, still needs network) ->
+  // 'offline' (zero-network flat canvas). Escalates one step each time the current
+  // style/tiles fail to load, the same "never show nothing" principle applied to
+  // backend failures elsewhere in the app.
+  const [mapStyleTier, setMapStyleTier] = useState<'primary' | 'demo' | 'offline'>(
+    HAS_MAPTILER_KEY ? 'primary' : 'demo'
+  );
+  const effectiveMapStyle =
+    mapStyleTier === 'primary' ? MAP_STYLE
+    : mapStyleTier === 'demo' ? 'https://demotiles.maplibre.org/style.json'
+    : OFFLINE_STYLE;
+  const showTerrain = HAS_MAPTILER_KEY && mapStyleTier === 'primary';
+  const mapStyleFailed = mapStyleTier !== 'primary' && HAS_MAPTILER_KEY;
 
   // ── Per-layer async state — independent: one failing must not block others ─
   const [healthState, setHealthState] = useState<LayerState<SEECropMaturityResponse>>(initialLayerState());
@@ -308,25 +327,36 @@ export const RegionalMap = () => {
             Add <code className="font-mono font-bold">VITE_MAPTILER_KEY</code> to .env.local for full map + terrain
           </div>
         )}
-        {HAS_MAPTILER_KEY && mapStyleFailed && (
+        {mapStyleFailed && mapStyleTier === 'demo' && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-50 border border-amber-300 text-amber-800 text-xs px-3 py-1.5 rounded-md shadow pointer-events-none">
             MapTiler unreachable — showing basic offline fallback map (no 3D terrain)
           </div>
         )}
+        {mapStyleTier === 'offline' && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-50 border border-amber-300 text-amber-800 text-xs px-3 py-1.5 rounded-md shadow pointer-events-none">
+            No basemap tiles reachable — showing node markers on a flat canvas (no tiles, no terrain)
+          </div>
+        )}
 
         <Map
-          initialViewState={{
-            longitude: 76.10,
-            latitude: 9.49,   // Alappuzha / Kuttanad
-            zoom: 10.5,
-            pitch: 45,
-            bearing: 0,
-          }}
+          // Remount on tier change: the offline flat-canvas fallback has no terrain/imagery
+          // to give the perspective pitch any visual meaning, and a tighter zoom there was
+          // pushing markers toward the edges, so it gets a flatter, slightly wider default view.
+          key={mapStyleTier}
+          initialViewState={
+            mapStyleTier === 'offline'
+              ? { longitude: 76.10, latitude: 9.49, zoom: 9.8, pitch: 0, bearing: 0 }
+              : { longitude: 76.10, latitude: 9.49, zoom: 10.5, pitch: 45, bearing: 0 }
+          }
           style={{ width: '100%', height: '100%' }}
           mapStyle={effectiveMapStyle}
           onError={(e) => {
-            if (!mapStyleFailed) setMapStyleFailed(true);
-            console.warn('MapLibre style/tile load error, falling back to offline demo style:', e?.error?.message);
+            setMapStyleTier((prev) => {
+              if (prev === 'primary') return 'demo';
+              if (prev === 'demo') return 'offline';
+              return prev;
+            });
+            console.warn('MapLibre style/tile load error, escalating fallback tier:', e?.error?.message);
           }}
           {...(showTerrain && TERRAIN_TILES ? { terrain: { source: 'terrain', exaggeration: 1.5 } } : {})}
         >
