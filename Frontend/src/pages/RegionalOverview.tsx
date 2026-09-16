@@ -15,6 +15,7 @@ import {
 } from '@/api/client';
 import { Loader2, AlertTriangle, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
+import { riskFromUtilizationRatio } from '@/lib/risk';
 
 // ── District / crop presets for the switcher ─────────────────────────────────
 interface DistrictPreset {
@@ -190,7 +191,7 @@ export const RegionalOverview = () => {
     ? baseline!.bottlenecks.filter((b) => b.node_type === 'mandi').reduce((sum, b) => sum + b.capacity_tonnes, 0)
     : null;
   const riskLevel = baselineComputable
-    ? (baseline!.max_utilization_ratio >= 1 ? 'High' : baseline!.max_utilization_ratio >= 0.65 ? 'Medium' : 'Low')
+    ? riskFromUtilizationRatio(baseline!.max_utilization_ratio)
     : null;
   const valueAtRiskCr = baselineComputable
     ? (baseline!.total_overshoot_tonnes * VALUE_AT_RISK_RS_PER_TONNE) / 1e7

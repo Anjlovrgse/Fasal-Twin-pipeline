@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '@/store/appStore';
 import { getBottleneckDetection, type BottleneckNode } from '@/api/client';
+import { riskFromUtilizationRatio } from '@/lib/risk';
 import { X, PlaySquare, ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import { useNavigate } from 'react-router-dom';
@@ -42,7 +43,7 @@ export const BottleneckAlert = () => {
   if (!selectedNodeId) return null;
 
   const risk = node
-    ? node.utilization_ratio >= 1 ? 'High' : node.utilization_ratio >= 0.65 ? 'Medium' : 'Low'
+    ? riskFromUtilizationRatio(node.utilization_ratio)
     : null;
 
   return (

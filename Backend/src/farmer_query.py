@@ -63,6 +63,7 @@ class GroundedFarmerQueryEngine:
             "weather_advisory": get_weather_advisory(district=district, crop=crop, loader=self.loader),
             "crop_maturity": get_crop_maturity_proxy(district=district, crop=crop),
             "recommendation": None,
+            "confidence_assessment": None,
             "evidence_chain": [],
             "matched_schemes": [],
             "price_forecast": None,
@@ -74,15 +75,15 @@ class GroundedFarmerQueryEngine:
             rec = optimizer.optimize()
             corpus["recommendation"] = rec
 
-            price_summary = {
-                "n_observations": 1563,
-                "r_squared": 0.048,
-                "slope": -0.852,
-                "constant_elasticity": -0.012
-            }
+            # Real fitted model summary — the same one /analyze and /recommendation
+            # use — not a hardcoded placeholder. This is what lets ConfidenceGate's
+            # out-of-sample test-R² check actually catch this district's real
+            # calibration problem here too, instead of only on those endpoints.
+            price_summary = optimizer.elasticity_model.get_summary()
 
             gate = ConfidenceGate()
             conf_assess = gate.evaluate(rec, price_summary)
+            corpus["confidence_assessment"] = conf_assess
 
             explainer = DecisionExplainer(district=district, crop=crop)
             chain = explainer.build_evidence_chain(rec, conf_assess, price_summary)
@@ -286,22 +287,14 @@ class GroundedFarmerQueryEngine:
         if any(re.search(r'\b' + re.escape(kw) + r'\b', q_clean) for kw in decision_keywords + bottleneck_keywords):
             rec = corpus.get("recommendation")
             chain = corpus.get("evidence_chain", [])
-            if rec and chain:
+            conf_assessment = corpus.get("confidence_assessment")
+            if rec and chain and conf_assessment:
                 fact_snippet = chain[0]["fact"] if chain else ""
-                # Determine confidence based on implausible magnitude flags
-                total_outcomes = sum(len(scn) for scn in rec.scenario_outcomes.values())
-                implausible_count = sum(
-                    1
-                    for scn in rec.scenario_outcomes.values()
-                    for outcome in scn.values()
-                    if outcome.implausible_magnitude
-                )
-                if total_outcomes > 0 and implausible_count == total_outcomes:
-                    conf = "LOW"
-                elif implausible_count > 0:
-                    conf = "MODERATE"
-                else:
-                    conf = "HIGH"
+                # Single source of truth for confidence: the same ConfidenceGate
+                # evaluation (real model test-R², scenario consensus, data density)
+                # that /analyze and /recommendation use — not a second, independent
+                # implausible-magnitude tally that could silently disagree with it.
+                conf = conf_assessment.confidence_label
 
                 # Choose phrasing based on confidence level
                 payoff_phrase = (
