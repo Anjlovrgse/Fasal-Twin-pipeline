@@ -52,3 +52,11 @@
 .mapboxgl-canvas-container {
   border-radius: 0.5rem;
 }
+
+/* The tap-to-query popup must sit above the map's own status banners (missing
+   MapTiler key, style-fallback tier notices), which are positioned absolute
+   siblings of the map with their own z-index — without this, a popup anchored
+   near the top of the map renders visually behind those banners. */
+.maplibregl-popup {
+  z-index: 25;
+}

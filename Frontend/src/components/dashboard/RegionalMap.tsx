@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Map, { Marker, NavigationControl, Source, type MapRef } from 'react-map-gl/maplibre';
+import Map, { Marker, NavigationControl, Source, Popup, type MapRef, type MapLayerMouseEvent } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useAppStore } from '@/store/appStore';
-import { MapPin, ThermometerSun, IndianRupee, CloudRain, Loader2, AlertTriangle } from 'lucide-react';
+import { MapPin, ThermometerSun, IndianRupee, CloudRain, Loader2, AlertTriangle, X, MapPinned } from 'lucide-react';
 import clsx from 'clsx';
 import {
   getSEECropMaturity,
@@ -10,10 +10,12 @@ import {
   getSEEWeatherAdvisory,
   getBottleneckDetection,
   getCoverage,
+  getLocationSummary,
   type SEECropMaturityResponse,
   type SEEPriceTrendResponse,
   type SEEWeatherAdvisoryResponse,
   type BottleneckNode,
+  type LocationSummaryResponse,
 } from '@/api/client';
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || '';
@@ -183,6 +185,25 @@ export const RegionalMap = () => {
   const [priceState, setPriceState]   = useState<LayerState<SEEPriceTrendResponse>>(initialLayerState());
   const [weatherState, setWeatherState] = useState<LayerState<SEEWeatherAdvisoryResponse>>(initialLayerState());
 
+  // ── Tap-to-query: click anywhere on the map to reverse-geocode that point and
+  // pull the same composite tier/sowing/price summary GET /location-summary
+  // bundles for a single tap, shown in a popup anchored at the tapped coordinate.
+  const [tapPoint, setTapPoint] = useState<{ lng: number; lat: number } | null>(null);
+  const [tapState, setTapState] = useState<LayerState<LocationSummaryResponse>>(initialLayerState());
+
+  const handleMapClick = useCallback((e: MapLayerMouseEvent) => {
+    const { lng, lat } = e.lngLat;
+    setTapPoint({ lng, lat });
+    setTapState({ loading: true, error: null, data: null });
+    getLocationSummary(lat, lng, activeCrop).then((result) => {
+      if ('error' in result && result.error) {
+        setTapState({ loading: false, error: 'Backend not connected', data: null });
+      } else {
+        setTapState({ loading: false, error: null, data: result as LocationSummaryResponse });
+      }
+    });
+  }, [activeCrop]);
+
   // ── Fetch helpers — each independent ──────────────────────────────────────
 
   const fetchCropHealth = useCallback(async () => {
@@ -242,6 +263,7 @@ export const RegionalMap = () => {
       <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
         <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-md border border-gray-200 shadow-sm pointer-events-auto">
           <h3 className="font-semibold text-gray-800 text-sm">Regional Twin</h3>
+          <p className="text-[10px] text-gray-400 mt-0.5">Tap anywhere for a location summary</p>
         </div>
 
         <div className="flex items-center gap-2 pointer-events-auto">
@@ -445,6 +467,7 @@ export const RegionalMap = () => {
           }
           style={{ width: '100%', height: '100%' }}
           mapStyle={effectiveMapStyle}
+          onClick={handleMapClick}
           onLoad={() => {
             // The one deliberate camera fly-in: a single wide-to-close descent into the
             // Kuttanad basin the first time the map becomes ready, never repeated on
@@ -536,6 +559,102 @@ export const RegionalMap = () => {
               </Marker>
             );
           })}
+
+          {/* Tap-to-query popup — reverse-geocodes wherever the user taps and shows
+              the same tier/sowing/price composite GET /location-summary bundles. */}
+          {tapPoint && (
+            <Popup
+              longitude={tapPoint.lng}
+              latitude={tapPoint.lat}
+              anchor="bottom"
+              closeButton={false}
+              closeOnClick={false}
+              maxWidth="280px"
+              className="fasal-tap-popup"
+            >
+              <div className="text-xs w-64">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-bold text-gray-800 flex items-center gap-1.5">
+                    <MapPinned className="w-3.5 h-3.5 text-[#1e847f]" />
+                    Tapped Location
+                  </p>
+                  <button
+                    onClick={() => { setTapPoint(null); setTapState(initialLayerState()); }}
+                    className="text-gray-400 hover:text-gray-700"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {tapState.loading && (
+                  <div className="flex items-center gap-2 text-gray-500 py-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Resolving…</span>
+                  </div>
+                )}
+
+                {!tapState.loading && tapState.error && (
+                  <div className="flex items-center gap-1.5 text-red-600">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Backend not connected</span>
+                  </div>
+                )}
+
+                {!tapState.loading && tapState.data && tapState.data.status !== 'resolved' && (
+                  <p className="text-gray-500 leading-snug">{tapState.data.reason ?? 'Location could not be resolved.'}</p>
+                )}
+
+                {!tapState.loading && tapState.data && tapState.data.status === 'resolved' && (
+                  <div className="space-y-1.5 text-gray-700">
+                    <div className="flex justify-between">
+                      <span>District</span>
+                      <span className="font-semibold">{tapState.data.district}, {tapState.data.state}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Tier</span>
+                      <span className="font-semibold">{tapState.data.capability_tier.replace('TIER_', 'Tier ').replace(/_/g, ' ')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Confidence</span>
+                      <span className={clsx(
+                        'font-semibold',
+                        tapState.data.confidence_label === 'LOW' ? 'text-[#c0392b]' :
+                        tapState.data.confidence_label === 'MEDIUM' || tapState.data.confidence_label === 'MODERATE' ? 'text-[#f5b041]' :
+                        'text-[#1e847f]'
+                      )}>
+                        {tapState.data.confidence_label}
+                      </span>
+                    </div>
+                    {tapState.data.full_twin && !tapState.data.full_twin.error && (
+                      <>
+                        <div className="pt-1.5 mt-1.5 border-t border-gray-100">
+                          <p className="text-gray-500 mb-0.5">Recommended action</p>
+                          <p className="font-semibold text-[#1e847f] leading-snug">{tapState.data.full_twin.selected_action}</p>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>14d price forecast</span>
+                          <span className="font-semibold">
+                            ₹{tapState.data.full_twin.price_forecast.price_range_low_rs.toFixed(0)}–{tapState.data.full_twin.price_forecast.price_range_high_rs.toFixed(0)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {tapState.data.sowing_advisory && (
+                      <div className="pt-1.5 mt-1.5 border-t border-gray-100">
+                        <p className="text-gray-500 mb-0.5">Recommended sowing window</p>
+                        <p className="font-semibold">
+                          {tapState.data.sowing_advisory.recommended_window.start_date} – {tapState.data.sowing_advisory.recommended_window.end_date}
+                        </p>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-gray-400 italic pt-1.5 mt-1.5 border-t border-gray-100 leading-tight">
+                      {tapState.data.tier_explanation}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </Popup>
+          )}
         </Map>
 
         {!mapNodesLoading && !mapNodesComputable && (

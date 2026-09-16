@@ -675,3 +675,68 @@ export const getSowingAdvisory = async (
   const response = await api.get<SowingAdvisoryResponse>(`/sowing-advisory/${state}/${district}/${crop}`);
   return response.data;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Location Summary API (GET /location-summary) — map tap-to-query
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ResolvedLocation {
+  status: string;
+  district: string;
+  state: string;
+  distance_km: number;
+  centroid_lat: number;
+  centroid_lon: number;
+  source: string;
+}
+
+export interface LocationFullTwinPayload {
+  recommendation_id: string;
+  selected_action: string;
+  action_type: string;
+  worst_case_guaranteed_payoff_rs: number;
+  max_regret_rs: number;
+  confidence_label: string;
+  confidence_score: number;
+  price_forecast: {
+    predicted_modal_price_rs_per_qtl: number;
+    price_range_low_rs: number;
+    price_range_high_rs: number;
+    confidence_label: string;
+  };
+  error?: string;
+}
+
+export interface LocationSummaryResponse {
+  status: string;
+  input_coordinates: { lat: number; lon: number };
+  resolved_location?: ResolvedLocation | null;
+  state?: string | null;
+  district?: string | null;
+  crop?: string | null;
+  capability_tier: string;
+  confidence_label: string;
+  tier_explanation: string;
+  sowing_advisory?: {
+    recommended_window: SowingWindow;
+    target_season: string;
+    bottleneck_risk_reduction_pct: number;
+    optimization_status: string;
+  } | null;
+  satellite_climate?: Record<string, any> | null;
+  full_twin?: LocationFullTwinPayload | null;
+  live_snapshot?: Record<string, any> | null;
+  reason?: string;
+  provenance: string;
+}
+
+export const getLocationSummary = async (
+  lat: number,
+  lon: number,
+  crop: string = 'Rice'
+): Promise<LocationSummaryResponse | { error: true; message: string }> => {
+  const response = await api.get<LocationSummaryResponse>(`/location-summary`, {
+    params: { lat, lon, crop },
+  });
+  return response.data;
+};

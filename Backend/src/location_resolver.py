@@ -25,6 +25,7 @@ from src.live_district_data import get_live_snapshot_summary
 from src.counterfactual_optimizer import CounterfactualOptimizer
 from src.price_forecast import forecast_price
 from src.bottleneck_detector import BottleneckDetector
+from src.confidence_gate import ConfidenceGate
 
 COORDINATES_CSV_PATH: Path = repo_root / "data" / "district_coordinates.csv"
 MAX_RESOLUTION_DISTANCE_KM: float = 75.0  # Maximum radius to snap tap to district centroid
@@ -163,20 +164,33 @@ def get_location_summary(
     # 4. Tier-Specific Payloads
     full_twin_payload = None
     live_snapshot_payload = None
+    # Overall confidence_label defaults to a tier-only heuristic (matches /analyze's
+    # Tier 2/3 behavior, which have no ConfidenceGate assessment to draw on); Tier 1
+    # overwrites this with the real evaluation below rather than a hardcoded "HIGH".
+    overall_confidence_label = "MEDIUM" if cap_tier == TIER_2_LIVE_SNAPSHOT else "LOW"
 
     if cap_tier == TIER_1_FULL_TWIN:
         try:
             opt = CounterfactualOptimizer(district=district, crop=crop, loader=loader)
             rec = opt.optimize()
             price_fc = forecast_price(state=state, district=district, crop=crop, days_ahead=14, loader=loader)
+
+            # Real confidence assessment — the same ConfidenceGate evaluation /analyze
+            # and /recommendation use — not a hardcoded "HIGH". This is what catches a
+            # negative out-of-sample test R² and downgrades the tap-to-query result
+            # accordingly, instead of always reporting full confidence for any Tier 1 tap.
+            gate = ConfidenceGate()
+            conf = gate.evaluate(rec, opt.elasticity_model.get_summary())
+            overall_confidence_label = conf.confidence_label
+
             full_twin_payload = {
                 "recommendation_id": f"rec_{district.lower()}_{crop.lower()}_active",
                 "selected_action": rec.selected_intervention_name,
                 "action_type": rec.selected_intervention_id,
                 "worst_case_guaranteed_payoff_rs": rec.worst_case_payoff_rs,
                 "max_regret_rs": rec.max_regret_rs,
-                "confidence_label": "HIGH",
-                "confidence_score": 0.98,
+                "confidence_label": conf.confidence_label,
+                "confidence_score": conf.confidence_score,
                 "price_forecast": {
                     "predicted_modal_price_rs_per_qtl": price_fc.point_estimate_rs,
                     "price_range_low_rs": price_fc.predicted_price_range[0] if price_fc.predicted_price_range else 0.0,
@@ -198,7 +212,7 @@ def get_location_summary(
         "district": district,
         "crop": crop,
         "capability_tier": cap_tier,
-        "confidence_label": "HIGH" if cap_tier == TIER_1_FULL_TWIN else ("MEDIUM" if cap_tier == TIER_2_LIVE_SNAPSHOT else "LOW"),
+        "confidence_label": overall_confidence_label,
         "tier_explanation": tier_explanation,
         "sowing_advisory": {
             "recommended_window": sowing_adv["recommended_sowing_window"],
