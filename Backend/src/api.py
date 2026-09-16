@@ -941,6 +941,10 @@ def analyze_any_district(
             district=district,
             crop=crop,
             tier_explanation=explanation,
+            confidence_label=conf.confidence_label,
+            answer=exp.summary_verdict,
+            matched_intent="full_digital_twin_recommendation",
+            referenced_context_ids=[exp.recommendation_id],
             full_twin_recommendation=RecommendationResponse(**rec_response),
             explanation=ExplanationResponse(**exp_response),
             scheme_advice=SchemeAdvisorResponse(**scheme_response),
@@ -951,12 +955,29 @@ def analyze_any_district(
 
     elif tier_val == TIER_2_LIVE_SNAPSHOT:
         snapshot = get_live_snapshot_summary(state=state, district=district, crop=crop, connector=live_connector)
+        price_info = snapshot.get("live_prices", {}) or {}
+        has_price = price_info.get("status") == "success"
+        if has_price:
+            answer = (
+                f"{snapshot.get('notice', '')} Live observational snapshot: mean modal price of "
+                f"Rs {price_info.get('mean_modal_price_rs')}/quintal across {price_info.get('records_count', 0)} "
+                f"Agmarknet record(s)."
+            )
+            snapshot_confidence = "MODERATE"
+        else:
+            answer = snapshot.get("notice", explanation)
+            snapshot_confidence = "LOW"
+
         return UniversalAnalyzeResponse(
             capability_tier=TIER_2_LIVE_SNAPSHOT,
             state=state,
             district=district,
             crop=crop,
             tier_explanation=explanation,
+            confidence_label=snapshot_confidence,
+            answer=answer,
+            matched_intent="live_observational_snapshot",
+            referenced_context_ids=[],
             full_twin_recommendation=None,
             explanation=None,
             scheme_advice=None,
@@ -972,6 +993,10 @@ def analyze_any_district(
             district=district,
             crop=crop,
             tier_explanation=explanation,
+            confidence_label="LOW",
+            answer=explanation,
+            matched_intent="insufficient_data",
+            referenced_context_ids=[],
             full_twin_recommendation=None,
             explanation=None,
             scheme_advice=None,

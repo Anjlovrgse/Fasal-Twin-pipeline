@@ -24,22 +24,68 @@ api.interceptors.response.use(
 // Recommendation / Analyze API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface EvidenceChainItem {
+  fact: string;
+  source: string;
+  category: string;
+}
+
+export interface SchemeDetail {
+  scheme_id: string;
+  scheme_name: string;
+  ministry?: string;
+  matched_action_type?: string;
+  source_document: string;
+  plain_language_summary: string;
+  grounded_clauses: string[];
+  mandatory_notice: string;
+}
+
+export interface SchemeAdvisorResponse {
+  recommendation_id?: string;
+  action_type: string;
+  matched_schemes_count: number;
+  matched_scheme_ids: string[];
+  schemes: SchemeDetail[];
+  mandatory_notice: string;
+}
+
+export interface FullTwinRecommendation {
+  recommendation_id: string;
+  district: string;
+  crop: string;
+  confidence_label: string;
+  confidence_score: number;
+  data_density_tier: string;
+  scenario_consensus: boolean;
+  selected_action: string;
+  worst_case_guaranteed_payoff_rs: number;
+  average_payoff_rs: number;
+  max_regret_rs: number;
+  evidence_chain: EvidenceChainItem[];
+  explanation_summary: string;
+}
+
+// ── /analyze/{state}/{district}/{crop} — carries capability_tier at top level
+// always, plus a flat confidence_label/answer/matched_intent projection derived
+// from whichever tier branch actually ran (Tier 1 full twin, Tier 2 live
+// snapshot, or Tier 3 insufficient-data), so the Evidence Drawer can render a
+// headline immediately without branching on tier first.
 export interface RecommendationResponse {
   capability_tier: string;
-  confidence_label: 'HIGH' | 'MODERATE' | 'LOW';
+  state: string;
+  district: string;
+  crop: string;
+  tier_explanation: string;
+  confidence_label: 'HIGH' | 'MODERATE' | 'MEDIUM' | 'LOW';
   answer: string;
   matched_intent: string;
   provenance: string;
   referenced_context_ids: string[];
-  // UI‑specific optional fields
-  recommendedAction?: string;
-  factors?: Array<{ id: string; description: string; source?: string; date?: string }>;
-  scheme?: {
-    title: string;
-    description: string;
-    source: string;
-    verificationNote: string;
-  };
+  full_twin_recommendation?: FullTwinRecommendation | null;
+  scheme_advice?: SchemeAdvisorResponse | null;
+  live_snapshot?: Record<string, any> | null;
+  insufficient_details?: Record<string, any> | null;
 }
 
 export const getRecommendation = async (
@@ -219,14 +265,18 @@ export const getSEEWeatherAdvisory = async (
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface PriorityDistrictItem {
+  priority_rank: number;
   district: string;
   crop: string;
-  composite_risk_score: number;
-  confidence_label: string;
-  total_bottleneck_nodes: number;
+  bottleneck_risk_score: number;
+  total_overshoot_tonnes: number;
+  active_alerts_count: number;
   max_utilization_ratio: number;
-  top_alert_reason: string;
-  computable_scenarios: number;
+  top_bottleneck_node: string;
+  top_bottleneck_overshoot_tonnes: number;
+  confidence_tier: string;
+  computable: boolean;
+  reason?: string | null;
 }
 
 export interface PriorityViewResponse {

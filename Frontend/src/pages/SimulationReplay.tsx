@@ -92,6 +92,12 @@ export const SimulationReplay = () => {
     ? '₹1.42 Cr'
     : '₹0.00 Cr';
 
+  // The frontend must never present an uncertain number with the same visual confidence
+  // as a verified one — when the backend flags a forecast's magnitude as implausible
+  // (e.g. a model that fails out-of-sample generalization), the figure gets a muted,
+  // warning-flagged treatment instead of the clean bold currency figure.
+  const isImplausible = Boolean(priceData?.based_on?.implausible_magnitude);
+
   const recommendationText = recData
     ? recData.answer
     : `Reroute 4,500 t of ${activeCrop} yield from Block C to Storage Central utilizing Transport Subsidy Scheme (TSS).`;
@@ -180,10 +186,19 @@ export const SimulationReplay = () => {
                 </div>
               ) : (
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold font-fraunces text-[#c0392b]">
+                  <span
+                    className={clsx(
+                      'text-3xl font-bold font-fraunces',
+                      isImplausible ? 'text-gray-500 opacity-60' : 'text-[#c0392b]'
+                    )}
+                  >
                     {interventionEnabled && isSimulationPlaying ? '₹0.42 Cr' : valueLoss}
                   </span>
+                  {isImplausible && <AlertTriangle className="w-4 h-4 text-[#f5b041] shrink-0" />}
                 </div>
+              )}
+              {isImplausible && !priceLoading && (
+                <p className="text-[10px] text-[#f5b041] mt-1.5">Implausible magnitude — estimate flagged, not guaranteed</p>
               )}
             </div>
 
@@ -196,10 +211,19 @@ export const SimulationReplay = () => {
                 </div>
               ) : (
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold font-fraunces text-[#1e847f]">
+                  <span
+                    className={clsx(
+                      'text-3xl font-bold font-fraunces',
+                      isImplausible ? 'text-gray-500 opacity-60' : 'text-[#1e847f]'
+                    )}
+                  >
                     {interventionEnabled && isSimulationPlaying ? '₹1.42 Cr' : valueProtected}
                   </span>
+                  {isImplausible && <AlertTriangle className="w-4 h-4 text-[#f5b041] shrink-0" />}
                 </div>
+              )}
+              {isImplausible && !priceLoading && (
+                <p className="text-[10px] text-[#f5b041] mt-1.5">Implausible magnitude — estimate flagged, not guaranteed</p>
               )}
             </div>
 

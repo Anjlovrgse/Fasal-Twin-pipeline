@@ -115,10 +115,11 @@ class GeminiClient:
         fabricated = self._detect_fabricated_numbers(output_nums, fact_texts)
 
         if fabricated or not generated:
-            fallback = instruction
-            if fact_lines:
-                fallback += " Facts: " + ", ".join(fact_lines)
-            generated = fallback
+            # Safe template fallback: the underlying facts are already well-formed
+            # natural-language sentences (see explain.py's evidence chain), so join
+            # them directly rather than leaking the raw instruction/prompt text.
+            fact_sentences = [str(f.get("fact", "")).strip() for f in facts if f.get("fact")]
+            generated = " ".join(fact_sentences) if fact_sentences else "No grounded facts were available to generate this summary."
             source = "template"
         else:
             source = "llm"

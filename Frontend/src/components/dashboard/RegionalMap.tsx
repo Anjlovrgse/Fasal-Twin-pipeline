@@ -58,6 +58,13 @@ export const RegionalMap = () => {
   // ── Layer toggle booleans ──────────────────────────────────────────────────
   const [layers, setLayers] = useState({ health: false, price: false, weather: false });
 
+  // If the MapTiler style/terrain fails to load (network issue, rate limit, bad key),
+  // fall back to the free offline-capable demo style rather than leaving a blank map —
+  // the map must never show nothing, the same principle applied to backend failures.
+  const [mapStyleFailed, setMapStyleFailed] = useState(false);
+  const effectiveMapStyle = mapStyleFailed ? 'https://demotiles.maplibre.org/style.json' : MAP_STYLE;
+  const showTerrain = HAS_MAPTILER_KEY && !mapStyleFailed;
+
   // ── Per-layer async state — independent: one failing must not block others ─
   const [healthState, setHealthState] = useState<LayerState<SEECropMaturityResponse>>(initialLayerState());
   const [priceState, setPriceState]   = useState<LayerState<SEEPriceTrendResponse>>(initialLayerState());
@@ -221,6 +228,8 @@ export const RegionalMap = () => {
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                   <span>Backend not connected</span>
                 </div>
+              ) : priceState.data && priceState.data.status === 'insufficient_data' ? (
+                <div className="text-gray-500">No market data for {activeDistrict}</div>
               ) : priceState.data ? (
                 <div className="space-y-1 text-gray-700">
                   <div className="flex justify-between">
@@ -244,8 +253,6 @@ export const RegionalMap = () => {
                     {priceState.data.data_provenance}
                   </div>
                 </div>
-              ) : priceState.data && (priceState.data as SEEPriceTrendResponse).status === 'insufficient_data' ? (
-                <div className="text-gray-500">No market data for {activeDistrict}</div>
               ) : null}
             </div>
           )}
@@ -301,6 +308,11 @@ export const RegionalMap = () => {
             Add <code className="font-mono font-bold">VITE_MAPTILER_KEY</code> to .env.local for full map + terrain
           </div>
         )}
+        {HAS_MAPTILER_KEY && mapStyleFailed && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-50 border border-amber-300 text-amber-800 text-xs px-3 py-1.5 rounded-md shadow pointer-events-none">
+            MapTiler unreachable — showing basic offline fallback map (no 3D terrain)
+          </div>
+        )}
 
         <Map
           initialViewState={{
@@ -311,11 +323,15 @@ export const RegionalMap = () => {
             bearing: 0,
           }}
           style={{ width: '100%', height: '100%' }}
-          mapStyle={MAP_STYLE}
-          {...(TERRAIN_TILES ? { terrain: { source: 'terrain', exaggeration: 1.5 } } : {})}
+          mapStyle={effectiveMapStyle}
+          onError={(e) => {
+            if (!mapStyleFailed) setMapStyleFailed(true);
+            console.warn('MapLibre style/tile load error, falling back to offline demo style:', e?.error?.message);
+          }}
+          {...(showTerrain && TERRAIN_TILES ? { terrain: { source: 'terrain', exaggeration: 1.5 } } : {})}
         >
           {/* MapTiler terrain-RGB source for 3D elevation */}
-          {TERRAIN_TILES && (
+          {showTerrain && TERRAIN_TILES && (
             <Source
               id="terrain"
               type="raster-dem"

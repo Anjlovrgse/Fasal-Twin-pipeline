@@ -48,6 +48,10 @@ export interface BottleneckAlertData {
   capacity: number;
   risk: RiskLevel;
   confidence: ConfidenceTier;
+  // Optional real-API-shaped fields — present on mocks that mirror a LOW-confidence
+  // or implausible-magnitude backend response for offline preview/demo purposes.
+  confidence_label?: 'HIGH' | 'MEDIUM' | 'MODERATE' | 'LOW';
+  implausible_magnitude?: boolean;
   harvestWindow: string;
   factors: ContributingFactor[];
   recommendedAction: string;

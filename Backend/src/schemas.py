@@ -61,7 +61,8 @@ class DetailedHealthResponse(BaseModel):
 class PriceTrendPoint(BaseModel):
     """Daily price and arrival record in time series."""
     date: str
-    arrival_qty_tonnes: float
+    arrival_qty_tonnes: Optional[float] = None
+    arrival_data_available: bool = True
     modal_price_rs_per_quintal: float
     market: Optional[str] = None
 
@@ -482,7 +483,10 @@ class Tier3InsufficientResponse(BaseModel):
 class UniversalAnalyzeResponse(BaseModel):
     """
     Unified entry point response for any Indian district.
-    Carries capability_tier at top level always.
+    Carries capability_tier at top level always, along with a flat
+    confidence_label/answer/matched_intent/referenced_context_ids projection
+    (derived from whichever tier branch actually ran) so callers do not need
+    to know the tier-specific nested shape just to render a headline answer.
     """
     capability_tier: str = Field(..., description="TIER_1_FULL_TWIN | TIER_2_LIVE_SNAPSHOT | TIER_3_INSUFFICIENT")
     state: str
@@ -490,6 +494,10 @@ class UniversalAnalyzeResponse(BaseModel):
     crop: str
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
     tier_explanation: str
+    confidence_label: str = Field(..., description="HIGH | MODERATE | LOW, mirrored from the active tier's own assessment")
+    answer: str = Field(..., description="Plain-language headline answer for this tier, safe to render directly")
+    matched_intent: str = Field(..., description="Which tier pathway produced this answer")
+    referenced_context_ids: List[str] = Field(default_factory=list)
     full_twin_recommendation: Optional[RecommendationResponse] = None
     explanation: Optional[ExplanationResponse] = None
     scheme_advice: Optional[SchemeAdvisorResponse] = None

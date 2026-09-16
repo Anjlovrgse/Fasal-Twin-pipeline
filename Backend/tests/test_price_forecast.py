@@ -29,7 +29,7 @@ def test_tier_1_price_forecast_alappuzha():
     assert low_p < high_p
     assert res.point_estimate_rs is not None
     assert low_p <= res.point_estimate_rs <= high_p
-    assert res.confidence_label in ["HIGH", "MEDIUM"]
+    assert res.confidence_label in ["HIGH", "MEDIUM", "LOW"]
     assert res.interval_width_rs > 0
 
     # Traceability checks
@@ -40,6 +40,12 @@ def test_tier_1_price_forecast_alappuzha():
     assert "elasticity_model_r2" in based_on
     assert "baseline_modal_price_rs_per_qtl" in based_on
     assert "projected_price_impact_rs_per_qtl" in based_on
+
+    # A LOW confidence label must never be silent: the guardrail only downgrades to
+    # LOW when it has also flagged the underlying magnitude as implausible, so the
+    # reason for distrust is always explicit and traceable, never implicit.
+    if res.confidence_label == "LOW":
+        assert based_on.get("implausible_magnitude") is True
 
 
 def test_confidence_interval_width_scales_inversely_with_n():
