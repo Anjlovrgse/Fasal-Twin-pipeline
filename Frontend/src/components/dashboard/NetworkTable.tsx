@@ -1,28 +1,40 @@
 import React from 'react';
-import { mockNodes } from '@/data/mockData';
 import { useAppStore } from '@/store/appStore';
-import { NetworkNode } from '@/types';
-import { ChevronRight, Box, Store, Factory, TreePine, Warehouse } from 'lucide-react';
+import type { BottleneckNode } from '@/api/client';
+import { ChevronRight, Box, Store, Factory, TreePine, Warehouse, Loader2, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 
-const getNodeIcon = (type: NetworkNode['type']) => {
-  switch (type) {
-    case 'Farm Block': return <TreePine className="w-4 h-4 text-[#1e847f]" />;
-    case 'FPO': return <Store className="w-4 h-4 text-[#f5b041]" />;
-    case 'Mandi': return <Store className="w-4 h-4 text-[#c0392b]" />;
-    case 'Storage': return <Warehouse className="w-4 h-4 text-gray-500" />;
-    case 'Processor': return <Factory className="w-4 h-4 text-gray-500" />;
+const getNodeIcon = (type: string) => {
+  switch (type.toLowerCase()) {
+    case 'fpo': return <TreePine className="w-4 h-4 text-[#1e847f]" />;
+    case 'mandi': return <Store className="w-4 h-4 text-[#c0392b]" />;
+    case 'storage': return <Warehouse className="w-4 h-4 text-gray-500" />;
+    case 'processor': return <Factory className="w-4 h-4 text-gray-500" />;
     default: return <Box className="w-4 h-4" />;
   }
 };
 
-const getOccupancyColor = (occupancy: number) => {
-  if (occupancy >= 90) return 'bg-[#c0392b]';
-  if (occupancy >= 70) return 'bg-[#f5b041]';
+const getOccupancyColor = (occupancyPct: number) => {
+  if (occupancyPct >= 100) return 'bg-[#c0392b]';
+  if (occupancyPct >= 70) return 'bg-[#f5b041]';
   return 'bg-[#1e847f]';
 };
 
-export const NetworkTable = () => {
+const riskFromUtilization = (ratio: number): 'High' | 'Medium' | 'Low' => {
+  if (ratio >= 1.0) return 'High';
+  if (ratio >= 0.65) return 'Medium';
+  return 'Low';
+};
+
+interface NetworkTableProps {
+  nodes: BottleneckNode[];
+  crop: string;
+  loading: boolean;
+  error: string | null;
+  unavailableReason?: string | null;
+}
+
+export const NetworkTable: React.FC<NetworkTableProps> = ({ nodes, crop, loading, error, unavailableReason }) => {
   const { selectedNodeId, setSelectedNodeId } = useAppStore();
 
   return (
@@ -33,86 +45,110 @@ export const NetworkTable = () => {
           View All <ChevronRight className="w-4 h-4 ml-0.5" />
         </button>
       </div>
-      
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm whitespace-nowrap">
-          <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
-            <tr>
-              <th className="px-4 py-3 font-medium">Node</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Crop</th>
-              <th className="px-4 py-3 font-medium text-right">Forecast Arrivals</th>
-              <th className="px-4 py-3 font-medium text-right">Absorption Cap.</th>
-              <th className="px-4 py-3 font-medium w-48">Occupancy</th>
-              <th className="px-4 py-3 font-medium">Risk</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {mockNodes.map((node) => (
-              <tr 
-                key={node.id}
-                onClick={() => setSelectedNodeId(node.id)}
-                className={clsx(
-                  "hover:bg-gray-50 cursor-pointer transition-colors",
-                  selectedNodeId === node.id && "bg-[#1e847f]/5"
-                )}
-              >
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {getNodeIcon(node.type)}
-                    <span className="font-medium text-gray-900">{node.name}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-gray-600">{node.type}</td>
-                <td className="px-4 py-3 text-gray-600">{node.crop}</td>
-                <td className="px-4 py-3 text-right font-medium text-gray-900">
-                  {node.forecastArrivals.toLocaleString()} t
-                </td>
-                <td className="px-4 py-3 text-right text-gray-600">
-                  {node.capacity.toLocaleString()} t
-                </td>
-                <td className="px-4 py-3">
-                  <div className="group relative w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div 
-                      className={clsx("h-full transition-all duration-500", getOccupancyColor(node.occupancy))}
-                      style={{ width: `${Math.min(node.occupancy, 100)}%` }}
-                    />
-                    
-                    {/* Tooltip */}
-                    <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-2 bg-[#1a1e23] text-white text-xs rounded z-10 shadow-lg">
-                      <p>Absorption Capacity = {node.capacity.toLocaleString()} t</p>
-                      <p>Current Forecast = {node.forecastArrivals.toLocaleString()} t</p>
-                      <p className="mt-1 font-medium">Status = {node.status}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={clsx(
-                    "px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                    node.risk === 'High' ? "bg-red-100 text-[#c0392b]" :
-                    node.risk === 'Medium' ? "bg-yellow-100 text-[#f5b041]" :
-                    "bg-teal-100 text-[#1e847f]"
-                  )}>
-                    {node.risk}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
-                    <div className={clsx(
-                      "w-2 h-2 rounded-full",
-                      node.status === 'Critical' ? "bg-[#c0392b]" :
-                      node.status === 'Warning' ? "bg-[#f5b041]" :
-                      "bg-[#1e847f]"
-                    )} />
-                    {node.status}
-                  </div>
-                </td>
+
+      {loading && (
+        <div className="flex items-center justify-center gap-2 text-gray-500 py-10 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading network topology…
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className="flex items-center gap-2 text-red-600 py-10 justify-center text-sm">
+          <AlertTriangle className="w-4 h-4" /> {error}
+        </div>
+      )}
+
+      {!loading && !error && unavailableReason && (
+        <div className="text-center py-10 text-gray-500 text-sm px-6">{unavailableReason}</div>
+      )}
+
+      {!loading && !error && !unavailableReason && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+              <tr>
+                <th className="px-4 py-3 font-medium">Node</th>
+                <th className="px-4 py-3 font-medium">Type</th>
+                <th className="px-4 py-3 font-medium">Crop</th>
+                <th className="px-4 py-3 font-medium text-right">Forecast Arrivals</th>
+                <th className="px-4 py-3 font-medium text-right">Absorption Cap.</th>
+                <th className="px-4 py-3 font-medium w-48">Occupancy</th>
+                <th className="px-4 py-3 font-medium">Risk</th>
+                <th className="px-4 py-3 font-medium">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {nodes.map((node) => {
+                const occupancyPct = node.utilization_ratio * 100;
+                const risk = riskFromUtilization(node.utilization_ratio);
+                const status = node.is_active_alert ? 'Critical' : occupancyPct >= 70 ? 'Warning' : 'Normal';
+                return (
+                  <tr
+                    key={node.node_id}
+                    onClick={() => setSelectedNodeId(node.node_id)}
+                    className={clsx(
+                      'hover:bg-gray-50 cursor-pointer transition-colors',
+                      selectedNodeId === node.node_id && 'bg-[#1e847f]/5'
+                    )}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {getNodeIcon(node.node_type)}
+                        <span className="font-medium text-gray-900">{node.node_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 capitalize">{node.node_type}</td>
+                    <td className="px-4 py-3 text-gray-600">{crop}</td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900">
+                      {node.forecast_inflow_tonnes.toLocaleString()} t
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-600">
+                      {node.capacity_tonnes.toLocaleString()} t
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="group relative w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={clsx('h-full transition-all duration-500', getOccupancyColor(occupancyPct))}
+                          style={{ width: `${Math.min(occupancyPct, 100)}%` }}
+                        />
+                        <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-2 bg-[#1a1e23] text-white text-xs rounded z-10 shadow-lg">
+                          <p>Absorption Capacity = {node.capacity_tonnes.toLocaleString()} t</p>
+                          <p>Current Forecast = {node.forecast_inflow_tonnes.toLocaleString()} t</p>
+                          <p className="mt-1 font-medium">Status = {status}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={clsx(
+                        'px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider',
+                        risk === 'High' ? 'bg-red-100 text-[#c0392b]' :
+                        risk === 'Medium' ? 'bg-yellow-100 text-[#f5b041]' :
+                        'bg-teal-100 text-[#1e847f]'
+                      )}>
+                        {risk}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
+                        <div className={clsx(
+                          'w-2 h-2 rounded-full',
+                          status === 'Critical' ? 'bg-[#c0392b]' :
+                          status === 'Warning' ? 'bg-[#f5b041]' :
+                          'bg-[#1e847f]'
+                        )} />
+                        {status}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {nodes.length === 0 && (
+            <div className="text-center py-10 text-gray-500 text-sm">No network nodes reported for this scenario.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

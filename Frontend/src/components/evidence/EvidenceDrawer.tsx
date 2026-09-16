@@ -41,6 +41,32 @@ export const EvidenceDrawer = ({ alert }: { alert?: any } = {}) => {
   // Fallback: if API returned data, use it; if prop was passed use that; otherwise use mock
   const data = apiData ?? alert ?? mockBottleneckAlert;
 
+  // Normalize the three possible sources (real API, alert prop, mock) into one view model,
+  // since they don't share a field-for-field shape (e.g. mock uses `confidence` + `factors`,
+  // the real API uses `confidence_label` + `full_twin_recommendation.evidence_chain`).
+  const confidenceLabel: string = apiData
+    ? apiData.confidence_label
+    : (data.confidence_label ?? data.confidence ?? 'HIGH').toString().toUpperCase();
+
+  const evidenceItems: Array<{ fact: string; source?: string }> = apiData
+    ? (apiData.full_twin_recommendation?.evidence_chain ?? [])
+    : (data.factors ?? []).map((f: any) => ({ fact: f.description, source: f.source }));
+
+  const recommendedAction: string = apiData
+    ? (apiData.full_twin_recommendation?.selected_action ?? apiData.answer)
+    : (data.recommendedAction ?? data.answer ?? '');
+
+  const scheme = apiData
+    ? (apiData.scheme_advice?.schemes?.[0]
+        ? {
+            title: apiData.scheme_advice.schemes[0].scheme_name,
+            description: apiData.scheme_advice.schemes[0].plain_language_summary,
+            source: apiData.scheme_advice.schemes[0].source_document,
+            verificationNote: apiData.scheme_advice.schemes[0].mandatory_notice,
+          }
+        : null)
+    : (data.scheme ?? null);
+
   return (
     <AnimatePresence>
       {isEvidenceDrawerOpen && (
@@ -93,14 +119,23 @@ export const EvidenceDrawer = ({ alert }: { alert?: any } = {}) => {
               {/* Data section (shows mock when error, real data when connected) */}
               {!loading && (
                 <>
-                  {/* Confidence Badge */}
+                  {/* Capability tier context (only present when connected to real backend) */}
+                  {apiData && (
+                    <div className="text-xs text-gray-500 -mb-4">
+                      {apiData.district} · {apiData.crop} · <span className="font-mono">{apiData.capability_tier}</span>
+                    </div>
+                  )}
+
+                  {/* Confidence state — structurally distinct, not just re-colored:
+                      LOW renders as a plain bordered warning box (no pill shape at all)
+                      so it can never be visually mistaken for a normal HIGH/MEDIUM result. */}
                   <div>
                     <p className="text-sm text-gray-500 font-medium mb-2">Overall Confidence</p>
-                    {data.confidence_label === 'LOW' ? (
+                    {confidenceLabel === 'LOW' ? (
                       <div className="border border-[#c0392b] px-3 py-1.5 rounded-md text-[#c0392b] font-bold text-sm shadow-sm">
-                        Scenarios disagree — recommend review
+                        Low confidence — estimated, pending model recalibration
                       </div>
-                    ) : data.confidence_label === 'MEDIUM' || data.confidence_label === 'MODERATE' ? (
+                    ) : confidenceLabel === 'MEDIUM' || confidenceLabel === 'MODERATE' ? (
                       <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-teal-500 text-teal-500 font-bold text-sm shadow-sm">
                         <ShieldCheck className="w-4 h-4" />
                         Medium Confidence
@@ -113,24 +148,21 @@ export const EvidenceDrawer = ({ alert }: { alert?: any } = {}) => {
                     )}
                   </div>
 
-                  {/* Factors */}
-                  {data.factors && data.factors.length > 0 && (
+                  {/* Evidence chain (Tier 1 full-twin) or contributing factors (mock/prop fallback) */}
+                  {evidenceItems.length > 0 && (
                     <div>
                       <p className="text-sm text-gray-500 font-medium mb-3">Forecast Evidence</p>
                       <div className="space-y-4">
-                        {data.factors.map((factor: any) => (
-                          <div key={factor.id} className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                            <div className="flex items-start justify-between">
-                              <p className="text-sm font-medium text-gray-800">{factor.description}</p>
-                              {factor.source && (
-                                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-[#1e847f] bg-teal-50 px-2 py-0.5 rounded border border-teal-100">
-                                  {factor.source}
-                                </span>
-                              )}
+                        {evidenceItems.map((item, idx) => (
+                          <div key={idx} className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-medium text-gray-800">{item.fact}</p>
                             </div>
-                            <p className="text-xs text-gray-500 mt-2">
-                              Corroborated across 3 models • Updated {factor.date}
-                            </p>
+                            {item.source && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-[#1e847f] bg-teal-50 px-2 py-0.5 rounded border border-teal-100 mt-2">
+                                {item.source}
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -150,30 +182,16 @@ export const EvidenceDrawer = ({ alert }: { alert?: any } = {}) => {
                   {/* Recommendation Logic */}
                   <div>
                     <p className="text-sm text-gray-500 font-medium mb-3">Recommendation Logic</p>
-                    {data.confidence_label === 'LOW' ? (
+                    {confidenceLabel === 'LOW' ? (
                       <div className="border border-[#c0392b] p-4 rounded-md text-[#c0392b]">
                         <p className="text-sm font-medium mb-2">Estimated Recommendation</p>
-                        <p className="text-sm">{data.recommendedAction ?? data.answer}</p>
+                        <p className="text-sm">{recommendedAction}</p>
                       </div>
                     ) : (
                       <div className="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
-                        <div className="flex gap-3 mb-3">
-                          <AlertTriangle className="w-5 h-5 text-[#c0392b] shrink-0" />
-                          <p className="text-sm text-gray-700">
-                            Mandi A is projected to exceed maximum capacity by{' '}
-                            <strong>132%</strong> on Oct 15 due to synchronized harvesting across
-                            Block C.
-                          </p>
-                        </div>
-                        <div className="pl-8 pb-3 border-b border-gray-100 mb-3">
-                          <p className="text-sm text-gray-700">
-                            Storage Central has <strong>3,000 t</strong> available capacity and
-                            is within a 15km radius.
-                          </p>
-                        </div>
-                        <div className="pl-8">
+                        <div className="pl-0">
                           <p className="text-sm font-bold text-[#1e847f]">
-                            Decision: {data.recommendedAction ?? data.answer}
+                            Decision: {recommendedAction}
                           </p>
                         </div>
                       </div>
@@ -181,7 +199,7 @@ export const EvidenceDrawer = ({ alert }: { alert?: any } = {}) => {
                   </div>
 
                   {/* Scheme info */}
-                  {data.scheme && (
+                  {scheme && (
                     <div>
                       <p className="text-sm text-gray-500 font-medium mb-3">
                         Relevant Government Scheme
@@ -189,21 +207,21 @@ export const EvidenceDrawer = ({ alert }: { alert?: any } = {}) => {
                       <div className="bg-teal-50/50 border border-[#1e847f]/20 p-4 rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
                           <FileText className="w-4 h-4 text-[#1e847f]" />
-                          <h4 className="font-bold text-[#1e847f]">{data.scheme.title}</h4>
+                          <h4 className="font-bold text-[#1e847f]">{scheme.title}</h4>
                         </div>
-                        <p className="text-sm text-gray-600 mb-3">{data.scheme.description}</p>
+                        <p className="text-sm text-gray-600 mb-3">{scheme.description}</p>
                         <div className="flex flex-col gap-2 pt-3 border-t border-[#1e847f]/10">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-gray-500">Source</span>
                             <span className="text-xs font-medium text-gray-800 flex items-center gap-1">
-                              {data.scheme.source}{' '}
+                              {scheme.source}{' '}
                               <ExternalLink className="w-3 h-3 text-[#1e847f]" />
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-gray-500">Status</span>
                             <span className="text-xs font-medium text-teal-600">
-                              {data.scheme.verificationNote}
+                              {scheme.verificationNote}
                             </span>
                           </div>
                         </div>

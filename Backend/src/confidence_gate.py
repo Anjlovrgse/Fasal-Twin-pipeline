@@ -64,10 +64,18 @@ class ConfidenceGate:
         recommendation: RobustRecommendation,
         scenario_best_details: Dict[str, Dict[str, Any]],
         data_density_tier: str,
+        model_fails_generalization: bool = False,
     ) -> Tuple[str, str]:
         """
         Identifies the specific input or shock scenario most responsible for scenario divergence.
         """
+        if model_fails_generalization:
+            return (
+                "model_generalization_failure",
+                "The price elasticity model's held-out test R² is negative, meaning it performs worse than "
+                "simply predicting the historical average price. Every payoff derived from it is flagged as "
+                "implausible and the recommendation is downgraded pending recalibration."
+            )
         if data_density_tier == "INSUFFICIENT":
             return (
                 "insufficient_data",
@@ -142,6 +150,11 @@ class ConfidenceGate:
         n_obs = price_model_summary.get("n_observations", 0)
         is_fitted = price_model_summary.get("is_fitted", False)
         r2 = price_model_summary.get("r_squared") or 0.0
+        # Out-of-sample test R² — the honest generalization signal. Training R² alone can look
+        # healthy (e.g. 0.26) while the held-out test R² is deeply negative, meaning the model
+        # performs worse than simply guessing the mean price. That gap must gate confidence too.
+        test_r2 = price_model_summary.get("test_r2")
+        model_fails_generalization = test_r2 is not None and test_r2 < 0.0
 
         if not is_fitted or n_obs < self.min_density_threshold:
             data_density_tier = "INSUFFICIENT"
@@ -152,6 +165,9 @@ class ConfidenceGate:
         else:
             data_density_tier = "SPARSE"
             density_score = 0.60
+
+        if model_fails_generalization:
+            density_score = min(density_score, 0.15)
 
         # 3. Overall confidence score synthesis (0.0 to 1.0)
         consensus_score = 1.0 if scenario_consensus else 0.35
@@ -170,22 +186,36 @@ class ConfidenceGate:
         else:
             confidence_label = "MEDIUM"
 
+        # A model that fails out-of-sample generalization can never be trusted as HIGH or MEDIUM,
+        # no matter how dense the data or how unanimous the scenarios are.
+        if model_fails_generalization:
+            confidence_label = "LOW"
+            confidence_score = round(min(confidence_score, 0.35), 3)
+
         # 4. Construct Disagreement Matrix & Driver Diagnosis if LOW confidence or Scenarios Disagree
         disagreement_matrix: Optional[DisagreementMatrix] = None
         driver_name: Optional[str] = None
 
         if confidence_label == "LOW" or not scenario_consensus:
-            action_verdict = (
-                "NO_ACTION_RECOMMENDED" if data_density_tier == "INSUFFICIENT" else "SPLIT_ADVISORY"
-            )
+            if model_fails_generalization:
+                action_verdict = "ESTIMATE_ONLY_PENDING_RECALIBRATION"
+            elif data_density_tier == "INSUFFICIENT":
+                action_verdict = "NO_ACTION_RECOMMENDED"
+            else:
+                action_verdict = "SPLIT_ADVISORY"
             driver_name, driver_expl = self._diagnose_disagreement_driver(
-                recommendation, scenario_best_details, data_density_tier
+                recommendation, scenario_best_details, data_density_tier, model_fails_generalization
             )
             dis_reason = (
-                f"Scenarios yielded diverging optimal interventions: {distinct_picks}. "
-                f"Primary disagreement driver: '{driver_name}'. "
-                f"Data density tier: {data_density_tier} ({n_obs} Agmarknet observations, R²={r2:.3f}). "
-                f"Computable scenarios: {computable_count}/{total_scenarios}."
+                f"Model failed out-of-sample generalization (test R²={test_r2:.3f}); every derived payoff is "
+                f"flagged implausible and the recommendation is downgraded pending recalibration."
+                if model_fails_generalization
+                else (
+                    f"Scenarios yielded diverging optimal interventions: {distinct_picks}. "
+                    f"Primary disagreement driver: '{driver_name}'. "
+                    f"Data density tier: {data_density_tier} ({n_obs} Agmarknet observations, R²={r2:.3f}). "
+                    f"Computable scenarios: {computable_count}/{total_scenarios}."
+                )
             )
             disagreement_matrix = DisagreementMatrix(
                 competing_interventions=list(distinct_picks),
@@ -199,16 +229,26 @@ class ConfidenceGate:
         provenance_note = (
             f"Confidence {confidence_label} (Score: {confidence_score:.2f}) derived from: "
             f"Data density tier '{data_density_tier}' ({n_obs} Agmarknet records, {price_model_summary.get('district')} {price_model_summary.get('crop')}), "
-            f"Scenario Consensus: {scenario_consensus} ({distinct_picks if len(distinct_picks) > 1 else 'All scenarios agree'}), "
+            + (
+                f"Held-out test R²={test_r2:.3f} (model performs worse than predicting the mean — flagged implausible, pending recalibration), "
+                if model_fails_generalization
+                else ""
+            )
+            + f"Scenario Consensus: {scenario_consensus} ({distinct_picks if len(distinct_picks) > 1 else 'All scenarios agree'}), "
             f"Scenario computability: {computable_count}/{total_scenarios} scenarios computable."
         )
 
         explanation = (
             f"Recommendation Confidence: {confidence_label}. "
             + (
-                f"All {computable_count} computable stress scenarios agree on the optimal action ({recommendation.selected_intervention_name})."
-                if scenario_consensus
-                else f"Scenarios diverge across {len(distinct_picks)} competing actions: {list(distinct_picks)}. Primary divergence driver: '{driver_name}'."
+                f"The price elasticity model's held-out test R² is {test_r2:.2f} — worse than predicting the mean — "
+                f"so this payoff is estimated (low-confidence, pending model recalibration) rather than guaranteed."
+                if model_fails_generalization
+                else (
+                    f"All {computable_count} computable stress scenarios agree on the optimal action ({recommendation.selected_intervention_name})."
+                    if scenario_consensus
+                    else f"Scenarios diverge across {len(distinct_picks)} competing actions: {list(distinct_picks)}. Primary divergence driver: '{driver_name}'."
+                )
             )
         )
 

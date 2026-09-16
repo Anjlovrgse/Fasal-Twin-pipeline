@@ -238,6 +238,17 @@ def get_multi_district_priority_ranking(
             tier_val, _, _ = resolve_tier(state="Kerala", district=dist, crop=crop, loader=loader)
             conf_tier = "HIGH" if tier_val == TIER_1_FULL_TWIN else ("MEDIUM" if tier_val == TIER_2_LIVE_SNAPSHOT else "INSUFFICIENT")
 
+            # Composite bottleneck risk score (0.0-1.0): weighted blend of peak node
+            # utilization, district-wide overshoot relative to total capacity, and
+            # active alert count. Weighted toward utilization since a single
+            # severely overloaded node is the sharpest early-warning signal.
+            utilization_component = min(1.0, base_rep.max_utilization_ratio)
+            overshoot_component = min(1.0, base_rep.total_overshoot_tonnes / total_cap) if total_cap > 0 else 0.0
+            alert_component = min(1.0, base_rep.active_alerts_count / 5.0)
+            risk_score = (
+                0.5 * utilization_component + 0.3 * overshoot_component + 0.2 * alert_component
+            )
+
             ranking_list.append({
                 "district": dist,
                 "crop": crop,

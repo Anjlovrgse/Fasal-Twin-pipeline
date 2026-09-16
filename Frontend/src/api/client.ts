@@ -21,25 +21,86 @@ api.interceptors.response.use(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Basic Health API (GET /health) — used for the sidebar's live connection indicator
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface HealthResponse {
+  status: string;
+  service: string;
+  version: string;
+}
+
+export const getHealth = async (): Promise<HealthResponse | { error: true; message: string }> => {
+  const response = await api.get<HealthResponse>(`/health`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Recommendation / Analyze API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface EvidenceChainItem {
+  fact: string;
+  source: string;
+  category: string;
+}
+
+export interface SchemeDetail {
+  scheme_id: string;
+  scheme_name: string;
+  ministry?: string;
+  matched_action_type?: string;
+  source_document: string;
+  plain_language_summary: string;
+  grounded_clauses: string[];
+  mandatory_notice: string;
+}
+
+export interface SchemeAdvisorResponse {
+  recommendation_id?: string;
+  action_type: string;
+  matched_schemes_count: number;
+  matched_scheme_ids: string[];
+  schemes: SchemeDetail[];
+  mandatory_notice: string;
+}
+
+export interface FullTwinRecommendation {
+  recommendation_id: string;
+  district: string;
+  crop: string;
+  confidence_label: string;
+  confidence_score: number;
+  data_density_tier: string;
+  scenario_consensus: boolean;
+  selected_action: string;
+  worst_case_guaranteed_payoff_rs: number;
+  average_payoff_rs: number;
+  max_regret_rs: number;
+  evidence_chain: EvidenceChainItem[];
+  explanation_summary: string;
+}
+
+// ── /analyze/{state}/{district}/{crop} — carries capability_tier at top level
+// always, plus a flat confidence_label/answer/matched_intent projection derived
+// from whichever tier branch actually ran (Tier 1 full twin, Tier 2 live
+// snapshot, or Tier 3 insufficient-data), so the Evidence Drawer can render a
+// headline immediately without branching on tier first.
 export interface RecommendationResponse {
   capability_tier: string;
-  confidence_label: 'HIGH' | 'MODERATE' | 'LOW';
+  state: string;
+  district: string;
+  crop: string;
+  tier_explanation: string;
+  confidence_label: 'HIGH' | 'MODERATE' | 'MEDIUM' | 'LOW';
   answer: string;
   matched_intent: string;
   provenance: string;
   referenced_context_ids: string[];
-  // UI‑specific optional fields
-  recommendedAction?: string;
-  factors?: Array<{ id: string; description: string; source?: string; date?: string }>;
-  scheme?: {
-    title: string;
-    description: string;
-    source: string;
-    verificationNote: string;
-  };
+  full_twin_recommendation?: FullTwinRecommendation | null;
+  scheme_advice?: SchemeAdvisorResponse | null;
+  live_snapshot?: Record<string, any> | null;
+  insufficient_details?: Record<string, any> | null;
 }
 
 export const getRecommendation = async (
@@ -219,14 +280,18 @@ export const getSEEWeatherAdvisory = async (
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface PriorityDistrictItem {
+  priority_rank: number;
   district: string;
   crop: string;
-  composite_risk_score: number;
-  confidence_label: string;
-  total_bottleneck_nodes: number;
+  bottleneck_risk_score: number;
+  total_overshoot_tonnes: number;
+  active_alerts_count: number;
   max_utilization_ratio: number;
-  top_alert_reason: string;
-  computable_scenarios: number;
+  top_bottleneck_node: string;
+  top_bottleneck_overshoot_tonnes: number;
+  confidence_tier: string;
+  computable: boolean;
+  reason?: string | null;
 }
 
 export interface PriorityViewResponse {
@@ -312,5 +377,142 @@ export const farmerQuery = async (
     crop,
     question,
   });
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bottleneck Detection API (GET /bottleneck/{district}/{crop})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BottleneckNode {
+  rank: number;
+  node_id: string;
+  node_name: string;
+  node_type: string;
+  district: string;
+  capacity_tonnes: number;
+  forecast_inflow_tonnes: number;
+  overshoot_tonnes: number;
+  overshoot_pct: number;
+  utilization_ratio: number;
+  is_active_alert: boolean;
+}
+
+export interface ScenarioBottlenecks {
+  computable: boolean;
+  status: string;
+  reason?: string | null;
+  total_bottleneck_nodes: number;
+  active_alerts_count: number;
+  total_overshoot_tonnes: number;
+  max_utilization_ratio: number;
+  data_provenance: string;
+  bottlenecks: BottleneckNode[];
+}
+
+export interface BottleneckDetectionResponse {
+  district: string;
+  crop: string;
+  scenarios: Record<string, ScenarioBottlenecks>;
+}
+
+export const getBottleneckDetection = async (
+  district: string,
+  crop: string
+): Promise<BottleneckDetectionResponse | { error: true; message: string }> => {
+  const response = await api.get<BottleneckDetectionResponse>(`/bottleneck/${district}/${crop}`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full Recommendation API (GET /recommendation/{district}/{crop})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FullRecommendationResponse {
+  recommendation_id: string;
+  district: string;
+  crop: string;
+  confidence_label: string;
+  confidence_score: number;
+  selected_action: string;
+  action_type: string;
+  worst_case_guaranteed_payoff_rs: number;
+  max_regret_rs: number;
+  evidence_chain: EvidenceChainItem[];
+  explanation_summary: string;
+}
+
+export const getFullRecommendation = async (
+  district: string,
+  crop: string
+): Promise<FullRecommendationResponse | { error: true; message: string }> => {
+  const response = await api.get<FullRecommendationResponse>(`/recommendation/${district}/${crop}`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scheme Advisor API (GET /scheme-advisor/{recommendation_id})
+// Action-triggered by design (never a standalone chat endpoint) — callers should
+// obtain a real recommendation_id from getFullRecommendation first.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getSchemeAdvice = async (
+  recommendationId: string
+): Promise<SchemeAdvisorResponse | { error: true; message: string }> => {
+  const response = await api.get<SchemeAdvisorResponse>(`/scheme-advisor/${recommendationId}`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// System Health & Coverage API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DataSourceHealth {
+  source_name: string;
+  resource_type: string;
+  is_available: boolean;
+  record_count?: number | null;
+  status_details: string;
+  provenance: string;
+}
+
+export interface DetailedHealthResponse {
+  system_status: string;
+  service: string;
+  version: string;
+  timestamp: string;
+  data_sources: Record<string, DataSourceHealth>;
+  persisted_models_loaded: string[];
+  total_sources_online: number;
+  total_sources_checked: number;
+}
+
+export const getDetailedHealth = async (): Promise<DetailedHealthResponse | { error: true; message: string }> => {
+  const response = await api.get<DetailedHealthResponse>(`/health/detailed`);
+  return response.data;
+};
+
+export interface CoverageDistrictItem {
+  district: string;
+  state: string;
+  capability_tier: string;
+  network_nodes_count?: number;
+  historical_records_count?: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  provenance: string;
+}
+
+export interface CoverageResponse {
+  total_districts_tracked: number;
+  tier_1_full_twins_count: number;
+  tier_2_live_snapshots_count: number;
+  tier_1_districts: CoverageDistrictItem[];
+  tier_2_districts: CoverageDistrictItem[];
+  data_provenance: string;
+}
+
+export const getCoverage = async (): Promise<CoverageResponse | { error: true; message: string }> => {
+  const response = await api.get<CoverageResponse>(`/coverage`);
   return response.data;
 };

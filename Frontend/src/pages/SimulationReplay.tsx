@@ -5,7 +5,26 @@ import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { RegionalMap } from '@/components/dashboard/RegionalMap';
 import { motion } from 'framer-motion';
-import { getPriceForecast, farmerQuery, type PriceForecastResponse, type FarmerQueryResponse } from '@/api/client';
+import {
+  getPriceForecast,
+  farmerQuery,
+  getBottleneckDetection,
+  type PriceForecastResponse,
+  type FarmerQueryResponse,
+  type BottleneckDetectionResponse,
+} from '@/api/client';
+
+// UI scenario label -> the real backend scenario key it corresponds to in
+// /bottleneck's response, so picking a scenario actually changes what's shown
+// instead of just re-styling the button (the price forecast itself is not
+// scenario-conditioned in the backend, so that panel stays as-is by design;
+// the per-scenario bottleneck impact is what genuinely varies).
+const SCENARIO_KEY: Record<string, string> = {
+  'Baseline': 'baseline',
+  'Weather-shift': 'weather_shifted',
+  'Regional shock': 'adjacent_shock',
+  'Capacity shock': 'capacity_shock',
+};
 
 export const SimulationReplay = () => {
   const navigate = useNavigate();
@@ -27,6 +46,11 @@ export const SimulationReplay = () => {
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [priceData, setPriceData] = useState<PriceForecastResponse | null>(null);
+
+  // Per-scenario bottleneck impact — this is what actually changes when the
+  // user picks a different scenario in the left rail.
+  const [bottleneckLoading, setBottleneckLoading] = useState(false);
+  const [bottleneckData, setBottleneckData] = useState<BottleneckDetectionResponse | null>(null);
 
   // Recommendation state (populated when simulation finishes)
   const [recLoading, setRecLoading] = useState(false);
@@ -52,6 +76,26 @@ export const SimulationReplay = () => {
 
     return () => { cancelled = true; };
   }, [activeState, activeDistrict, activeCrop]);
+
+  // Fetch all 4 scenarios' bottleneck impact once per district/crop — the
+  // scenario buttons then just select which one to display, no re-fetch needed.
+  useEffect(() => {
+    let cancelled = false;
+    setBottleneckLoading(true);
+    setBottleneckData(null);
+
+    getBottleneckDetection(activeDistrict, activeCrop).then((result) => {
+      if (cancelled) return;
+      setBottleneckLoading(false);
+      if (!('error' in result && result.error)) {
+        setBottleneckData(result as BottleneckDetectionResponse);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [activeDistrict, activeCrop]);
+
+  const activeScenarioData = bottleneckData?.scenarios?.[SCENARIO_KEY[simulationScenario]];
 
   // Mock animation logic: auto-pause after 5 seconds; then fetch recommendation
   useEffect(() => {
@@ -91,6 +135,12 @@ export const SimulationReplay = () => {
     : interventionEnabled && isSimulationPlaying
     ? '₹1.42 Cr'
     : '₹0.00 Cr';
+
+  // The frontend must never present an uncertain number with the same visual confidence
+  // as a verified one — when the backend flags a forecast's magnitude as implausible
+  // (e.g. a model that fails out-of-sample generalization), the figure gets a muted,
+  // warning-flagged treatment instead of the clean bold currency figure.
+  const isImplausible = Boolean(priceData?.based_on?.implausible_magnitude);
 
   const recommendationText = recData
     ? recData.answer
@@ -162,6 +212,34 @@ export const SimulationReplay = () => {
             ))}
           </div>
 
+          {/* Real per-scenario bottleneck impact — changes with the selection above */}
+          <div className="mb-8 bg-[#2d3436]/50 rounded-lg p-4 border border-[#2d3436]">
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">{simulationScenario} Impact</p>
+            {bottleneckLoading ? (
+              <div className="flex items-center gap-2 text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-xs">Loading…</span>
+              </div>
+            ) : activeScenarioData?.computable ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Active alerts</span>
+                  <span className="font-semibold text-[#c0392b]">{activeScenarioData.active_alerts_count}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Total overshoot</span>
+                  <span className="font-semibold text-white">{activeScenarioData.total_overshoot_tonnes.toLocaleString()} t</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Peak utilization</span>
+                  <span className="font-semibold text-[#f5b041]">{(activeScenarioData.max_utilization_ratio * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">{activeScenarioData?.reason ?? 'Not computable for this scenario.'}</p>
+            )}
+          </div>
+
           <div className="space-y-6 mt-auto">
             {/* Price error banner */}
             {priceError && (
@@ -180,10 +258,19 @@ export const SimulationReplay = () => {
                 </div>
               ) : (
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold font-fraunces text-[#c0392b]">
+                  <span
+                    className={clsx(
+                      'text-3xl font-bold font-fraunces',
+                      isImplausible ? 'text-gray-500 opacity-60' : 'text-[#c0392b]'
+                    )}
+                  >
                     {interventionEnabled && isSimulationPlaying ? '₹0.42 Cr' : valueLoss}
                   </span>
+                  {isImplausible && <AlertTriangle className="w-4 h-4 text-[#f5b041] shrink-0" />}
                 </div>
+              )}
+              {isImplausible && !priceLoading && (
+                <p className="text-[10px] text-[#f5b041] mt-1.5">Implausible magnitude — estimate flagged, not guaranteed</p>
               )}
             </div>
 
@@ -196,10 +283,19 @@ export const SimulationReplay = () => {
                 </div>
               ) : (
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold font-fraunces text-[#1e847f]">
+                  <span
+                    className={clsx(
+                      'text-3xl font-bold font-fraunces',
+                      isImplausible ? 'text-gray-500 opacity-60' : 'text-[#1e847f]'
+                    )}
+                  >
                     {interventionEnabled && isSimulationPlaying ? '₹1.42 Cr' : valueProtected}
                   </span>
+                  {isImplausible && <AlertTriangle className="w-4 h-4 text-[#f5b041] shrink-0" />}
                 </div>
+              )}
+              {isImplausible && !priceLoading && (
+                <p className="text-[10px] text-[#f5b041] mt-1.5">Implausible magnitude — estimate flagged, not guaranteed</p>
               )}
             </div>
 

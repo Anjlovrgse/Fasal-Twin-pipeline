@@ -44,7 +44,9 @@ export const BacktestView = () => {
 
   const accuracyPct  = data?.overall_accuracy_pct ?? null;
   const totalWeeks   = data?.total_weeks ?? 0;
-  const statusOk     = data?.status === 'success';
+  // Backend returns 'validated' on success or 'insufficient_history' when the
+  // pre-harvest window doesn't have enough records — never the string 'success'.
+  const statusOk     = data?.status === 'validated';
 
   return (
     <div className="p-6 h-full flex flex-col">
@@ -123,7 +125,7 @@ export const BacktestView = () => {
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                     labelStyle={{ fontWeight: 'bold', color: '#1a1e23' }}
-                    formatter={(val: number) => [`${val?.toFixed(0)} t`, '']}
+                    formatter={(val) => [`${typeof val === 'number' ? val.toFixed(0) : val} t`, '']}
                   />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                   <Line
@@ -169,7 +171,7 @@ export const BacktestView = () => {
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                     labelStyle={{ fontWeight: 'bold', color: '#1a1e23' }}
-                    formatter={(val: number) => [`${val?.toFixed(0)} t`, '']}
+                    formatter={(val) => [`${typeof val === 'number' ? val.toFixed(0) : val} t`, '']}
                   />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                   <Line

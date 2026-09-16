@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import Map, { Marker, NavigationControl, Source } from 'react-map-gl/maplibre';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Map, { Marker, NavigationControl, Source, type MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useAppStore } from '@/store/appStore';
 import { mockNodes } from '@/data/mockData';
@@ -25,6 +25,17 @@ const MAP_STYLE = HAS_MAPTILER_KEY
 const TERRAIN_TILES = HAS_MAPTILER_KEY
   ? `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPTILER_KEY}`
   : null;
+
+// Last-resort style requiring zero network calls: a flat "instrument panel" canvas
+// so the map region can never render fully blank, even with no internet reachability
+// at all (both MapTiler and the demotiles.maplibre.org fallback unreachable).
+const OFFLINE_STYLE = {
+  version: 8 as const,
+  sources: {},
+  layers: [
+    { id: 'background', type: 'background' as const, paint: { 'background-color': '#eef1ea' } },
+  ],
+};
 
 // ── Per-layer async state shape ──────────────────────────────────────────────
 interface LayerState<T> {
@@ -52,11 +63,33 @@ const trendColor = (dir: string) =>
 const sourceLabel = (src: string) =>
   src === 'live_open_meteo' ? 'Live · Open-Meteo' : 'Historical · IMD CSV';
 
+// The single real target view over the Kuttanad backwater basin — the fly-in
+// starts wide and zooms/tilts into this exact framing, once, on load.
+const TARGET_VIEW = { longitude: 76.10, latitude: 9.49, zoom: 10.5, pitch: 45, bearing: 0 };
+const FLY_IN_START = { longitude: 76.10, latitude: 9.49, zoom: 5.5, pitch: 0, bearing: 0 };
+
 export const RegionalMap = () => {
   const { setSelectedNodeId, selectedNodeId, activeDistrict, activeCrop } = useAppStore();
+  const mapRef = useRef<MapRef>(null);
+  const hasFlownIn = useRef(false);
 
   // ── Layer toggle booleans ──────────────────────────────────────────────────
   const [layers, setLayers] = useState({ health: false, price: false, weather: false });
+
+  // Three-tier map style fallback so the map canvas can never render fully blank:
+  // 'primary' (MapTiler) -> 'demo' (demotiles.maplibre.org, still needs network) ->
+  // 'offline' (zero-network flat canvas). Escalates one step each time the current
+  // style/tiles fail to load, the same "never show nothing" principle applied to
+  // backend failures elsewhere in the app.
+  const [mapStyleTier, setMapStyleTier] = useState<'primary' | 'demo' | 'offline'>(
+    HAS_MAPTILER_KEY ? 'primary' : 'demo'
+  );
+  const effectiveMapStyle =
+    mapStyleTier === 'primary' ? MAP_STYLE
+    : mapStyleTier === 'demo' ? 'https://demotiles.maplibre.org/style.json'
+    : OFFLINE_STYLE;
+  const showTerrain = HAS_MAPTILER_KEY && mapStyleTier === 'primary';
+  const mapStyleFailed = mapStyleTier !== 'primary' && HAS_MAPTILER_KEY;
 
   // ── Per-layer async state — independent: one failing must not block others ─
   const [healthState, setHealthState] = useState<LayerState<SEECropMaturityResponse>>(initialLayerState());
@@ -221,6 +254,8 @@ export const RegionalMap = () => {
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                   <span>Backend not connected</span>
                 </div>
+              ) : priceState.data && priceState.data.status === 'insufficient_data' ? (
+                <div className="text-gray-500">No market data for {activeDistrict}</div>
               ) : priceState.data ? (
                 <div className="space-y-1 text-gray-700">
                   <div className="flex justify-between">
@@ -244,8 +279,6 @@ export const RegionalMap = () => {
                     {priceState.data.data_provenance}
                   </div>
                 </div>
-              ) : priceState.data && (priceState.data as SEEPriceTrendResponse).status === 'insufficient_data' ? (
-                <div className="text-gray-500">No market data for {activeDistrict}</div>
               ) : null}
             </div>
           )}
@@ -301,21 +334,51 @@ export const RegionalMap = () => {
             Add <code className="font-mono font-bold">VITE_MAPTILER_KEY</code> to .env.local for full map + terrain
           </div>
         )}
+        {mapStyleFailed && mapStyleTier === 'demo' && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-50 border border-amber-300 text-amber-800 text-xs px-3 py-1.5 rounded-md shadow pointer-events-none">
+            MapTiler unreachable — showing basic offline fallback map (no 3D terrain)
+          </div>
+        )}
+        {mapStyleTier === 'offline' && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-50 border border-amber-300 text-amber-800 text-xs px-3 py-1.5 rounded-md shadow pointer-events-none">
+            No basemap tiles reachable — showing node markers on a flat canvas (no tiles, no terrain)
+          </div>
+        )}
 
         <Map
-          initialViewState={{
-            longitude: 76.10,
-            latitude: 9.49,   // Alappuzha / Kuttanad
-            zoom: 10.5,
-            pitch: 45,
-            bearing: 0,
-          }}
+          ref={mapRef}
+          // Remount on tier change: the offline flat-canvas fallback has no terrain/imagery
+          // to give the perspective pitch any visual meaning, and a tighter zoom there was
+          // pushing markers toward the edges, so it gets a flatter, slightly wider default view.
+          key={mapStyleTier}
+          initialViewState={
+            mapStyleTier === 'offline'
+              ? { longitude: 76.10, latitude: 9.49, zoom: 9.8, pitch: 0, bearing: 0 }
+              : FLY_IN_START
+          }
           style={{ width: '100%', height: '100%' }}
-          mapStyle={MAP_STYLE}
-          {...(TERRAIN_TILES ? { terrain: { source: 'terrain', exaggeration: 1.5 } } : {})}
+          mapStyle={effectiveMapStyle}
+          onLoad={() => {
+            // The one deliberate camera fly-in: a single wide-to-close descent into the
+            // Kuttanad basin the first time the map becomes ready, never repeated on
+            // subsequent re-renders or district switches.
+            if (mapStyleTier !== 'offline' && !hasFlownIn.current) {
+              hasFlownIn.current = true;
+              mapRef.current?.flyTo({ ...TARGET_VIEW, duration: 2600, essential: true });
+            }
+          }}
+          onError={(e) => {
+            setMapStyleTier((prev) => {
+              if (prev === 'primary') return 'demo';
+              if (prev === 'demo') return 'offline';
+              return prev;
+            });
+            console.warn('MapLibre style/tile load error, escalating fallback tier:', e?.error?.message);
+          }}
+          {...(showTerrain && TERRAIN_TILES ? { terrain: { source: 'terrain', exaggeration: 1.5 } } : {})}
         >
           {/* MapTiler terrain-RGB source for 3D elevation */}
-          {TERRAIN_TILES && (
+          {showTerrain && TERRAIN_TILES && (
             <Source
               id="terrain"
               type="raster-dem"

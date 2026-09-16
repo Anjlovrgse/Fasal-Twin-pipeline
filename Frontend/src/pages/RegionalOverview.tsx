@@ -5,7 +5,14 @@ import { RegionalMap } from '@/components/dashboard/RegionalMap';
 import { NetworkTable } from '@/components/dashboard/NetworkTable';
 import { BottleneckAlert } from '@/components/dashboard/BottleneckAlert';
 import { useAppStore } from '@/store/appStore';
-import { getCapabilityTier, type CapabilityTierResponse } from '@/api/client';
+import {
+  getCapabilityTier,
+  getBottleneckDetection,
+  getRecommendation,
+  type CapabilityTierResponse,
+  type BottleneckDetectionResponse,
+  type RecommendationResponse,
+} from '@/api/client';
 import { Loader2, AlertTriangle, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -123,49 +130,130 @@ const DistrictSwitcher: React.FC = () => {
   );
 };
 
+const VALUE_AT_RISK_RS_PER_TONNE = 28000; // ~ Rs 2,800/quintal, matching the elasticity model's baseline modal price
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export const RegionalOverview = () => {
+  const { activeState, activeDistrict, activeCrop } = useAppStore();
+
+  // Real per-node bottleneck data (baseline scenario) drives the metric cards and network table.
+  const [bnLoading, setBnLoading] = useState(false);
+  const [bnError, setBnError] = useState<string | null>(null);
+  const [bnData, setBnData] = useState<BottleneckDetectionResponse | null>(null);
+
+  // Real /analyze evidence chain drives "Top contributing factors".
+  const [anLoading, setAnLoading] = useState(false);
+  const [anError, setAnError] = useState<string | null>(null);
+  const [anData, setAnData] = useState<RecommendationResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBnLoading(true);
+    setBnError(null);
+    setBnData(null);
+    getBottleneckDetection(activeDistrict, activeCrop).then((result) => {
+      if (cancelled) return;
+      setBnLoading(false);
+      if ('error' in result && result.error) {
+        setBnError('Backend not connected');
+      } else {
+        setBnData(result as BottleneckDetectionResponse);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [activeDistrict, activeCrop]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAnLoading(true);
+    setAnError(null);
+    setAnData(null);
+    getRecommendation(activeState, activeDistrict, activeCrop).then((result) => {
+      if (cancelled) return;
+      setAnLoading(false);
+      if ('error' in result && result.error) {
+        setAnError('Backend not connected');
+      } else {
+        setAnData(result as RecommendationResponse);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [activeState, activeDistrict, activeCrop]);
+
+  const baseline = bnData?.scenarios?.baseline;
+  const baselineComputable = baseline?.computable === true;
+
+  const totalArrivals = baselineComputable
+    ? baseline!.bottlenecks.reduce((sum, b) => sum + b.forecast_inflow_tonnes, 0)
+    : null;
+  const mandiCapacity = baselineComputable
+    ? baseline!.bottlenecks.filter((b) => b.node_type === 'mandi').reduce((sum, b) => sum + b.capacity_tonnes, 0)
+    : null;
+  const riskLevel = baselineComputable
+    ? (baseline!.max_utilization_ratio >= 1 ? 'High' : baseline!.max_utilization_ratio >= 0.65 ? 'Medium' : 'Low')
+    : null;
+  const valueAtRiskCr = baselineComputable
+    ? (baseline!.total_overshoot_tonnes * VALUE_AT_RISK_RS_PER_TONNE) / 1e7
+    : null;
+
+  const networkUnavailableReason = !bnLoading && !bnError && !baselineComputable
+    ? (baseline?.reason ?? 'Full network simulation is unavailable for this district — see the capability tier above.')
+    : null;
+
+  const evidenceChain = anData?.full_twin_recommendation?.evidence_chain ?? [];
+  const evidenceUnavailableReason = !anLoading && !anError && anData && anData.capability_tier !== 'TIER_1_FULL_TWIN'
+    ? anData.answer
+    : null;
+
   return (
-    <div className="p-6 h-full flex flex-col min-h-0">
+    <div className="p-6 flex flex-col">
       {/* Tier badge + district switcher row */}
       <div className="flex items-center justify-between mb-4 shrink-0 gap-4 flex-wrap">
         <CapabilityTierBadge />
         <DistrictSwitcher />
       </div>
 
-      {/* Summary Metrics */}
+      {/* Summary Metrics — real, derived from the baseline scenario's actual node-level forecast */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 shrink-0">
         <MetricCard
           label="Expected Crop Arrivals"
-          value="18,400 t"
-          subLabel="Oct 18-26 window"
+          value={bnLoading ? '…' : totalArrivals != null ? `${Math.round(totalArrivals).toLocaleString()} t` : '—'}
+          subLabel={bnLoading ? 'Loading…' : baselineComputable ? 'Baseline scenario forecast' : (bnError ?? 'Unavailable for this tier')}
         />
         <MetricCard
           label="Total Mandi Capacity"
-          value="13,900 t"
-          subLabel="Within 50km radius"
+          value={bnLoading ? '…' : mandiCapacity != null ? `${Math.round(mandiCapacity).toLocaleString()} t` : '—'}
+          subLabel={baselineComputable ? 'Mapped mandi nodes' : undefined}
         />
         <MetricCard
           label="Regional Bottleneck Risk"
-          value="High"
-          isRisk={true}
+          value={bnLoading ? '…' : riskLevel ?? '—'}
+          isRisk={riskLevel === 'High'}
         />
         <MetricCard
           label="Projected Value at Risk"
-          value="₹1.84 Cr"
+          value={bnLoading ? '…' : valueAtRiskCr != null ? `₹${valueAtRiskCr.toFixed(2)} Cr` : '—'}
           isRisk={true}
         />
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
+      {/* Main Content Area — a fixed-ish min-height row (not flex-1/min-h-0) so the
+          Network Parameters table below, which can be many rows of real data, pushes
+          the page taller instead of squeezing this row's map and factors panel down
+          to near-zero height fighting for the same fixed viewport budget. */}
+      <div className="flex flex-col lg:flex-row gap-6 mb-6 min-h-[520px]">
         {/* Left Column: Factors */}
-        <div className="w-full lg:w-1/3 xl:w-1/4 shrink-0 h-64 lg:h-auto">
-          <ContributingFactors />
+        <div className="w-full lg:w-1/3 xl:w-1/4 shrink-0">
+          <ContributingFactors
+            factors={evidenceChain}
+            loading={anLoading}
+            error={anError}
+            unavailableReason={evidenceUnavailableReason}
+          />
         </div>
 
         {/* Right Column: Map & Table container */}
-        <div className="flex-1 flex flex-col min-w-0 gap-6 h-full relative">
+        <div className="flex-1 flex flex-col min-w-0 gap-6 relative">
           <div className="flex-1 min-h-[400px]">
             <RegionalMap />
           </div>
@@ -173,9 +261,15 @@ export const RegionalOverview = () => {
         </div>
       </div>
 
-      {/* Technical Parameters Table */}
+      {/* Technical Parameters Table — real per-node data from the baseline scenario */}
       <div className="shrink-0 pb-6">
-        <NetworkTable />
+        <NetworkTable
+          nodes={baseline?.bottlenecks ?? []}
+          crop={activeCrop}
+          loading={bnLoading}
+          error={bnError}
+          unavailableReason={networkUnavailableReason}
+        />
       </div>
     </div>
   );

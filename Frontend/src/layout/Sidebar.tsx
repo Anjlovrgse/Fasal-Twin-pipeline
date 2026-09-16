@@ -1,19 +1,20 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-  Leaf, 
-  LayoutDashboard, 
-  AlertTriangle, 
-  PlaySquare, 
-  Map, 
-  History, 
-  ShieldCheck, 
-  BookOpen, 
+import {
+  Leaf,
+  LayoutDashboard,
+  AlertTriangle,
+  PlaySquare,
+  Map,
+  History,
+  ShieldCheck,
+  BookOpen,
   Settings,
   LogOut,
   ChevronLeft
 } from 'lucide-react';
 import clsx from 'clsx';
+import { getHealth } from '@/api/client';
 
 const navGroups = [
   {
@@ -42,6 +43,23 @@ const navGroups = [
 ];
 
 export const Sidebar = () => {
+  // Real backend connectivity, not a decorative always-green dot: polls /health
+  // on a light interval so the indicator reflects what the rest of the app is
+  // actually seeing, including recovering automatically once the backend returns.
+  const [backendUp, setBackendUp] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      const result = await getHealth();
+      if (cancelled) return;
+      setBackendUp(!('error' in result && result.error));
+    };
+    check();
+    const interval = setInterval(check, 15000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
   return (
     <aside className="w-64 bg-[#1a1e23] text-white flex flex-col h-screen shrink-0 font-archivo transition-all duration-300 border-r border-[#2d3436]">
       {/* Header */}
@@ -83,8 +101,13 @@ export const Sidebar = () => {
       {/* Footer / User Profile */}
       <div className="p-4 border-t border-[#2d3436]">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-2 h-2 rounded-full bg-[#1e847f]"></div>
-          <span className="text-xs text-gray-400">Data Connected</span>
+          <div className={clsx(
+            'w-2 h-2 rounded-full',
+            backendUp === null ? 'bg-gray-500' : backendUp ? 'bg-[#1e847f]' : 'bg-[#c0392b]'
+          )}></div>
+          <span className="text-xs text-gray-400">
+            {backendUp === null ? 'Checking…' : backendUp ? 'Data Connected' : 'Backend Offline'}
+          </span>
         </div>
         
         <div className="flex items-center justify-between">

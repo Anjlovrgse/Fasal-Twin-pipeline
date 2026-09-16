@@ -65,12 +65,12 @@ export const PriorityView = () => {
     const matchesSearch =
       item.district.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.crop.toLowerCase().includes(searchTerm.toLowerCase());
-    const normConf = item.confidence_label?.toUpperCase();
+    const normConf = item.confidence_tier?.toUpperCase();
     const matchesConf =
       filterConfidence === 'All' ||
       (filterConfidence === 'High' && normConf === 'HIGH') ||
       (filterConfidence === 'Moderate' && (normConf === 'MODERATE' || normConf === 'MEDIUM')) ||
-      (filterConfidence === 'Low' && normConf === 'LOW');
+      (filterConfidence === 'Low' && (normConf === 'LOW' || normConf === 'INSUFFICIENT'));
     return matchesSearch && matchesConf;
   });
 
@@ -140,12 +140,12 @@ export const PriorityView = () => {
                 <th className="px-6 py-4 font-medium w-48">Risk Level</th>
                 <th className="px-6 py-4 font-medium">Confidence</th>
                 <th className="px-6 py-4 font-medium">Utilization</th>
-                <th className="px-6 py-4 font-medium">Bottleneck Nodes</th>
+                <th className="px-6 py-4 font-medium">Top Bottleneck</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredData.map((item, idx) => {
-                const riskCat = getRiskCategory(item.composite_risk_score ?? 0);
+                const riskCat = getRiskCategory(item.bottleneck_risk_score ?? 0);
                 return (
                   <tr
                     key={`${item.district}-${item.crop}-${idx}`}
@@ -156,32 +156,36 @@ export const PriorityView = () => {
                     }}
                     className="hover:bg-gray-50 cursor-pointer transition-colors"
                   >
-                    <td className="px-6 py-4 text-gray-400 font-mono text-xs">#{idx + 1}</td>
+                    <td className="px-6 py-4 text-gray-400 font-mono text-xs">#{item.priority_rank ?? idx + 1}</td>
                     <td className="px-6 py-4 font-medium text-gray-900">{item.district}</td>
                     <td className="px-6 py-4 text-gray-600">{item.crop}</td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={clsx(
-                            'text-xs font-bold w-14',
-                            riskCat === 'High' ? 'text-[#c0392b]' :
-                            riskCat === 'Medium' ? 'text-[#f5b041]' : 'text-[#1e847f]'
-                          )}
-                        >
-                          {riskCat}
-                        </span>
-                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className={clsx('h-full', getRiskColor(riskCat))}
-                            style={{ width: `${Math.round((item.composite_risk_score ?? 0) * 100)}%` }}
-                          />
+                      {item.computable === false ? (
+                        <span className="text-xs text-gray-400 italic">{item.reason ?? 'Not computable'}</span>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={clsx(
+                              'text-xs font-bold w-14',
+                              riskCat === 'High' ? 'text-[#c0392b]' :
+                              riskCat === 'Medium' ? 'text-[#f5b041]' : 'text-[#1e847f]'
+                            )}
+                          >
+                            {riskCat}
+                          </span>
+                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={clsx('h-full', getRiskColor(riskCat))}
+                              style={{ width: `${Math.round((item.bottleneck_risk_score ?? 0) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-gray-400 text-xs font-mono">
+                            {((item.bottleneck_risk_score ?? 0) * 100).toFixed(0)}
+                          </span>
                         </div>
-                        <span className="text-gray-400 text-xs font-mono">
-                          {((item.composite_risk_score ?? 0) * 100).toFixed(0)}
-                        </span>
-                      </div>
+                      )}
                     </td>
-                    <td className="px-6 py-4">{getConfidenceBadge(item.confidence_label)}</td>
+                    <td className="px-6 py-4">{getConfidenceBadge(item.confidence_tier)}</td>
                     <td className="px-6 py-4 font-mono text-xs text-gray-700">
                       {item.max_utilization_ratio != null
                         ? `${(item.max_utilization_ratio * 100).toFixed(0)}%`
@@ -191,7 +195,9 @@ export const PriorityView = () => {
                       <div className="flex items-center gap-2">
                         {riskCat === 'High' && <AlertTriangle className="w-4 h-4 text-[#c0392b]" />}
                         <span className="text-gray-700 font-medium">
-                          {item.total_bottleneck_nodes ?? 0} node{item.total_bottleneck_nodes !== 1 ? 's' : ''}
+                          {item.top_bottleneck_node && item.top_bottleneck_node !== 'None'
+                            ? item.top_bottleneck_node
+                            : `${item.active_alerts_count ?? 0} alert${item.active_alerts_count !== 1 ? 's' : ''}`}
                         </span>
                       </div>
                     </td>

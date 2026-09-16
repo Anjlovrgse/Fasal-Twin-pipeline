@@ -214,12 +214,6 @@ class CounterfactualOptimizer:
             impact = self.elasticity_model.estimate_price_impact(base_total_inflow, new_total_inflow)
             delta_price_rs_qtl = max(0.0, impact.get("delta_price_rs_per_quintal", 0.0))
             price_gain = delta_price_rs_qtl * (new_total_inflow * 10.0)
-            # Debug prints for price calculation (retain original condition)
-            if self.district == "Alappuzha" and self.crop.lower() == "rice" and intervention.intervention_id == "INT-2" and scenario_res.scenario_name == "baseline":
-                print(f"elasticity impact dict: {impact}")
-                print(f"Delta price (Rs per quintal): {delta_price_rs_qtl}")
-                print(f"new_total_inflow (tonnes): {new_total_inflow}")
-                print(f"price_gain = Delta price * (new_total_inflow * 10): {price_gain}")
         else:
             delta_price_rs_qtl = 0.0
             price_gain = 0.0

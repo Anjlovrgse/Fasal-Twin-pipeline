@@ -1,9 +1,14 @@
 import { NetworkNode, ContributingFactor, BottleneckAlertData, DistrictPriority, BacktestDataPoint } from '@/types';
 
+// Node coordinates are the real Alappuzha network_capacity.csv positions (Kuttanad
+// backwater basin, ~9.4-9.6N / 76.3-76.5E) so markers actually fall within the map's
+// initialViewState (centered 76.10, 9.49) instead of ~245km off-screen — the mock set
+// previously used ~11.7N coordinates (Kozhikode-area), which put every marker outside
+// the visible viewport regardless of whether basemap tiles loaded.
 export const mockNodes: NetworkNode[] = [
   {
     id: 'block-c',
-    name: 'Block C',
+    name: 'Kainakary Farm Block',
     type: 'Farm Block',
     crop: 'Rice',
     forecastArrivals: 8500,
@@ -11,11 +16,11 @@ export const mockNodes: NetworkNode[] = [
     occupancy: 85,
     risk: 'Medium',
     status: 'Warning',
-    coordinates: [76.0856, 11.6854]
+    coordinates: [76.3833, 9.4667] // near F1 Kainakary Paddy FPO
   },
   {
     id: 'fpo-north',
-    name: 'FPO North',
+    name: 'Kainakary Paddy FPO',
     type: 'FPO',
     crop: 'Rice',
     forecastArrivals: 9000,
@@ -23,11 +28,11 @@ export const mockNodes: NetworkNode[] = [
     occupancy: 75,
     risk: 'Medium',
     status: 'Normal',
-    coordinates: [76.1023, 11.7012]
+    coordinates: [76.3833, 9.4667] // F1
   },
   {
     id: 'mandi-a',
-    name: 'Mandi A',
+    name: 'Alappuzha Principal Mandi',
     type: 'Mandi',
     crop: 'Rice',
     forecastArrivals: 18400,
@@ -35,11 +40,11 @@ export const mockNodes: NetworkNode[] = [
     occupancy: 132,
     risk: 'High',
     status: 'Critical',
-    coordinates: [76.1215, 11.7135]
+    coordinates: [76.3388, 9.4981] // M1 — matches the Alappuzha district centroid
   },
   {
     id: 'storage-central',
-    name: 'Storage Central',
+    name: 'KSWC Warehouse Ambalapuzha',
     type: 'Storage',
     crop: 'Rice',
     forecastArrivals: 5000,
@@ -47,11 +52,11 @@ export const mockNodes: NetworkNode[] = [
     occupancy: 62,
     risk: 'Low',
     status: 'Normal',
-    coordinates: [76.1420, 11.6980]
+    coordinates: [76.36, 9.38] // S2
   },
   {
     id: 'processor-west',
-    name: 'Processor West',
+    name: 'Supplyco Rice Mill Kalavoor',
     type: 'Processor',
     crop: 'Rice',
     forecastArrivals: 3000,
@@ -59,12 +64,13 @@ export const mockNodes: NetworkNode[] = [
     occupancy: 60,
     risk: 'Low',
     status: 'Normal',
-    coordinates: [76.0710, 11.6520]
+    coordinates: [76.33, 9.56] // P1
   },
-  // Secondary example for Priority View
+  // Secondary example for Priority View — Harippad market, still within Alappuzha
+  // district so it renders on the same regional map instead of off-screen.
   {
     id: 'block-wayanad',
-    name: 'Block Wayanad',
+    name: 'Harippad Regulated Market',
     type: 'Farm Block',
     crop: 'Tomato',
     forecastArrivals: 8500,
@@ -72,7 +78,7 @@ export const mockNodes: NetworkNode[] = [
     occupancy: 85,
     risk: 'Medium',
     status: 'Warning',
-    coordinates: [76.2000, 11.8000]
+    coordinates: [76.4583, 9.2783] // M2
   }
 ];
 
