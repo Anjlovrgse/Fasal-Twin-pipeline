@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import Map, { Marker, NavigationControl, Source } from 'react-map-gl/maplibre';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Map, { Marker, NavigationControl, Source, type MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useAppStore } from '@/store/appStore';
 import { mockNodes } from '@/data/mockData';
@@ -63,8 +63,15 @@ const trendColor = (dir: string) =>
 const sourceLabel = (src: string) =>
   src === 'live_open_meteo' ? 'Live · Open-Meteo' : 'Historical · IMD CSV';
 
+// The single real target view over the Kuttanad backwater basin — the fly-in
+// starts wide and zooms/tilts into this exact framing, once, on load.
+const TARGET_VIEW = { longitude: 76.10, latitude: 9.49, zoom: 10.5, pitch: 45, bearing: 0 };
+const FLY_IN_START = { longitude: 76.10, latitude: 9.49, zoom: 5.5, pitch: 0, bearing: 0 };
+
 export const RegionalMap = () => {
   const { setSelectedNodeId, selectedNodeId, activeDistrict, activeCrop } = useAppStore();
+  const mapRef = useRef<MapRef>(null);
+  const hasFlownIn = useRef(false);
 
   // ── Layer toggle booleans ──────────────────────────────────────────────────
   const [layers, setLayers] = useState({ health: false, price: false, weather: false });
@@ -339,6 +346,7 @@ export const RegionalMap = () => {
         )}
 
         <Map
+          ref={mapRef}
           // Remount on tier change: the offline flat-canvas fallback has no terrain/imagery
           // to give the perspective pitch any visual meaning, and a tighter zoom there was
           // pushing markers toward the edges, so it gets a flatter, slightly wider default view.
@@ -346,10 +354,19 @@ export const RegionalMap = () => {
           initialViewState={
             mapStyleTier === 'offline'
               ? { longitude: 76.10, latitude: 9.49, zoom: 9.8, pitch: 0, bearing: 0 }
-              : { longitude: 76.10, latitude: 9.49, zoom: 10.5, pitch: 45, bearing: 0 }
+              : FLY_IN_START
           }
           style={{ width: '100%', height: '100%' }}
           mapStyle={effectiveMapStyle}
+          onLoad={() => {
+            // The one deliberate camera fly-in: a single wide-to-close descent into the
+            // Kuttanad basin the first time the map becomes ready, never repeated on
+            // subsequent re-renders or district switches.
+            if (mapStyleTier !== 'offline' && !hasFlownIn.current) {
+              hasFlownIn.current = true;
+              mapRef.current?.flyTo({ ...TARGET_VIEW, duration: 2600, essential: true });
+            }
+          }}
           onError={(e) => {
             setMapStyleTier((prev) => {
               if (prev === 'primary') return 'demo';

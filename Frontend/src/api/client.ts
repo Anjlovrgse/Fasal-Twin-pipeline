@@ -21,6 +21,21 @@ api.interceptors.response.use(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Basic Health API (GET /health) — used for the sidebar's live connection indicator
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface HealthResponse {
+  status: string;
+  service: string;
+  version: string;
+}
+
+export const getHealth = async (): Promise<HealthResponse | { error: true; message: string }> => {
+  const response = await api.get<HealthResponse>(`/health`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Recommendation / Analyze API
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -362,5 +377,142 @@ export const farmerQuery = async (
     crop,
     question,
   });
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bottleneck Detection API (GET /bottleneck/{district}/{crop})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BottleneckNode {
+  rank: number;
+  node_id: string;
+  node_name: string;
+  node_type: string;
+  district: string;
+  capacity_tonnes: number;
+  forecast_inflow_tonnes: number;
+  overshoot_tonnes: number;
+  overshoot_pct: number;
+  utilization_ratio: number;
+  is_active_alert: boolean;
+}
+
+export interface ScenarioBottlenecks {
+  computable: boolean;
+  status: string;
+  reason?: string | null;
+  total_bottleneck_nodes: number;
+  active_alerts_count: number;
+  total_overshoot_tonnes: number;
+  max_utilization_ratio: number;
+  data_provenance: string;
+  bottlenecks: BottleneckNode[];
+}
+
+export interface BottleneckDetectionResponse {
+  district: string;
+  crop: string;
+  scenarios: Record<string, ScenarioBottlenecks>;
+}
+
+export const getBottleneckDetection = async (
+  district: string,
+  crop: string
+): Promise<BottleneckDetectionResponse | { error: true; message: string }> => {
+  const response = await api.get<BottleneckDetectionResponse>(`/bottleneck/${district}/${crop}`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full Recommendation API (GET /recommendation/{district}/{crop})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FullRecommendationResponse {
+  recommendation_id: string;
+  district: string;
+  crop: string;
+  confidence_label: string;
+  confidence_score: number;
+  selected_action: string;
+  action_type: string;
+  worst_case_guaranteed_payoff_rs: number;
+  max_regret_rs: number;
+  evidence_chain: EvidenceChainItem[];
+  explanation_summary: string;
+}
+
+export const getFullRecommendation = async (
+  district: string,
+  crop: string
+): Promise<FullRecommendationResponse | { error: true; message: string }> => {
+  const response = await api.get<FullRecommendationResponse>(`/recommendation/${district}/${crop}`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scheme Advisor API (GET /scheme-advisor/{recommendation_id})
+// Action-triggered by design (never a standalone chat endpoint) — callers should
+// obtain a real recommendation_id from getFullRecommendation first.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getSchemeAdvice = async (
+  recommendationId: string
+): Promise<SchemeAdvisorResponse | { error: true; message: string }> => {
+  const response = await api.get<SchemeAdvisorResponse>(`/scheme-advisor/${recommendationId}`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// System Health & Coverage API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DataSourceHealth {
+  source_name: string;
+  resource_type: string;
+  is_available: boolean;
+  record_count?: number | null;
+  status_details: string;
+  provenance: string;
+}
+
+export interface DetailedHealthResponse {
+  system_status: string;
+  service: string;
+  version: string;
+  timestamp: string;
+  data_sources: Record<string, DataSourceHealth>;
+  persisted_models_loaded: string[];
+  total_sources_online: number;
+  total_sources_checked: number;
+}
+
+export const getDetailedHealth = async (): Promise<DetailedHealthResponse | { error: true; message: string }> => {
+  const response = await api.get<DetailedHealthResponse>(`/health/detailed`);
+  return response.data;
+};
+
+export interface CoverageDistrictItem {
+  district: string;
+  state: string;
+  capability_tier: string;
+  network_nodes_count?: number;
+  historical_records_count?: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  provenance: string;
+}
+
+export interface CoverageResponse {
+  total_districts_tracked: number;
+  tier_1_full_twins_count: number;
+  tier_2_live_snapshots_count: number;
+  tier_1_districts: CoverageDistrictItem[];
+  tier_2_districts: CoverageDistrictItem[];
+  data_provenance: string;
+}
+
+export const getCoverage = async (): Promise<CoverageResponse | { error: true; message: string }> => {
+  const response = await api.get<CoverageResponse>(`/coverage`);
   return response.data;
 };

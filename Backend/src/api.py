@@ -274,7 +274,9 @@ def detailed_health_check():
         import sqlite3
         conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM recommendation_alerts;")
+        # outcome_tracker.py creates 'recommendation_logs', not 'recommendation_alerts' —
+        # querying the wrong table name silently marked a healthy DB as broken.
+        cur.execute("SELECT COUNT(*) FROM recommendation_logs;")
         db_count = cur.fetchone()[0]
         conn.close()
     except Exception as e:
