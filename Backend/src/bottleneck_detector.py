@@ -40,6 +40,8 @@ class BottleneckNode:
     utilization_ratio: float
     rank: int
     is_active_alert: bool = True  # True if overshoot >= ALERT_OVERSHOOT_TONNES_THRESHOLD
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 @dataclass
@@ -137,6 +139,8 @@ class BottleneckDetector:
                     "overshoot_pct": round(overshoot_pct, 2),
                     "utilization_ratio": round(util_ratio, 4),
                     "is_active_alert": is_active,
+                    "latitude": node_data.get("lat"),
+                    "longitude": node_data.get("lon"),
                 })
 
         # Rank strictly by overshoot_tonnes descending
@@ -155,6 +159,8 @@ class BottleneckDetector:
                 utilization_ratio=item["utilization_ratio"],
                 rank=idx + 1,
                 is_active_alert=item["is_active_alert"],
+                latitude=item["latitude"],
+                longitude=item["longitude"],
             )
             for idx, item in enumerate(overshoots)
         ]

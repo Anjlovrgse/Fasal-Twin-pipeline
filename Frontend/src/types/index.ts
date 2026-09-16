@@ -1,20 +1,5 @@
 export type RiskLevel = 'Low' | 'Medium' | 'High';
 export type ConfidenceTier = 'Low' | 'Medium' | 'High';
-export type NodeStatus = 'Normal' | 'Warning' | 'Critical';
-export type NodeType = 'Farm Block' | 'FPO' | 'Mandi' | 'Storage' | 'Processor';
-
-export interface NetworkNode {
-  id: string;
-  name: string;
-  type: NodeType;
-  crop: string;
-  forecastArrivals: number;
-  capacity: number;
-  occupancy: number; // percentage 0-100
-  risk: RiskLevel;
-  status: NodeStatus;
-  coordinates: [number, number]; // [longitude, latitude]
-}
 
 export interface Metric {
   label: string;

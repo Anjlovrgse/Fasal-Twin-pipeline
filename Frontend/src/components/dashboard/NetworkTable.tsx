@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAppStore } from '@/store/appStore';
 import type { BottleneckNode } from '@/api/client';
+import { riskFromUtilizationRatio } from '@/lib/risk';
 import { ChevronRight, Box, Store, Factory, TreePine, Warehouse, Loader2, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -18,12 +19,6 @@ const getOccupancyColor = (occupancyPct: number) => {
   if (occupancyPct >= 100) return 'bg-[#c0392b]';
   if (occupancyPct >= 70) return 'bg-[#f5b041]';
   return 'bg-[#1e847f]';
-};
-
-const riskFromUtilization = (ratio: number): 'High' | 'Medium' | 'Low' => {
-  if (ratio >= 1.0) return 'High';
-  if (ratio >= 0.65) return 'Medium';
-  return 'Low';
 };
 
 interface NetworkTableProps {
@@ -80,7 +75,7 @@ export const NetworkTable: React.FC<NetworkTableProps> = ({ nodes, crop, loading
             <tbody className="divide-y divide-gray-200">
               {nodes.map((node) => {
                 const occupancyPct = node.utilization_ratio * 100;
-                const risk = riskFromUtilization(node.utilization_ratio);
+                const risk = riskFromUtilizationRatio(node.utilization_ratio);
                 const status = node.is_active_alert ? 'Critical' : occupancyPct >= 70 ? 'Warning' : 'Normal';
                 return (
                   <tr

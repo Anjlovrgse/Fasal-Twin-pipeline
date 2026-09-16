@@ -67,9 +67,15 @@ def test_get_location_summary_tier1_alappuzha():
     assert summary["status"] == "resolved"
     assert summary["district"] == "Alappuzha"
     assert summary["capability_tier"] == TIER_1_FULL_TWIN
-    assert summary["confidence_label"] == "HIGH"
-    assert summary["sowing_advisory"] is not None
+    # Not a fixed "HIGH": confidence is the real ConfidenceGate evaluation of the
+    # actual fitted elasticity model, which is expected to be LOW here since that
+    # model fails out-of-sample (negative test R²) — the same guardrail /analyze
+    # and /recommendation apply, so this endpoint must never silently disagree
+    # with them just because it's reached by tapping the map instead.
+    assert summary["confidence_label"] in ["HIGH", "MEDIUM", "LOW"]
     assert summary["full_twin"] is not None
+    assert summary["full_twin"]["confidence_label"] == summary["confidence_label"]
+    assert summary["sowing_advisory"] is not None
     assert summary["full_twin"]["selected_action"] is not None
     assert summary["full_twin"]["price_forecast"] is not None
 

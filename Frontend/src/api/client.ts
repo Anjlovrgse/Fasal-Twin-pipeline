@@ -396,6 +396,8 @@ export interface BottleneckNode {
   overshoot_pct: number;
   utilization_ratio: number;
   is_active_alert: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface ScenarioBottlenecks {
@@ -514,5 +516,227 @@ export interface CoverageResponse {
 
 export const getCoverage = async (): Promise<CoverageResponse | { error: true; message: string }> => {
   const response = await api.get<CoverageResponse>(`/coverage`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sowing Advisory API (GET /sowing-advisory/{state}/{district}/{crop})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SowingWindow {
+  start_date: string;
+  end_date: string;
+  expected_harvest_window: string;
+  simulated_peak_overshoot_tonnes: number;
+  peak_harvest_overlap_risk: string;
+  score: number;
+  stagger_offset_days?: number;
+  advisory_action?: string;
+  rationale?: string;
+}
+
+export interface SowingCandidateWindow {
+  window_name: string;
+  sowing_start: string;
+  sowing_end: string;
+  expected_harvest_window: string;
+  stagger_offset_days: number;
+  simulated_peak_overshoot_tonnes: number;
+  harvest_cluster_overlap_risk: string;
+  weather_interruption_risk: string;
+  optimization_score: number;
+  advisory_rationale: string;
+}
+
+export interface SowingAdvisoryResponse {
+  state: string;
+  district: string;
+  crop: string;
+  target_season: string;
+  capability_tier: string;
+  confidence_label: string;
+  confidence_score: number;
+  optimization_status: string;
+  nominal_sowing_window: SowingWindow;
+  recommended_sowing_window: SowingWindow;
+  candidate_windows_evaluated: SowingCandidateWindow[];
+  bottleneck_risk_reduction_pct: number;
+  evidence_chain: EvidenceChainItem[];
+  notice: string;
+  provenance: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model Performance, Outcome History & Data Quality (System Status page)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface WalkForwardFold {
+  fold_index: number;
+  train_window: string;
+  test_window: string;
+  n_train: number;
+  n_test: number;
+  train_r2: number;
+  test_r2: number;
+  test_mae?: number;
+  test_rmse?: number;
+  slope?: number;
+}
+
+export interface PriceModelPerformance {
+  is_fitted: boolean;
+  status: string;
+  cutoff_date: string;
+  n_observations: number;
+  n_train: number;
+  n_test: number;
+  train_r2: number | null;
+  test_r2: number | null;
+  test_mae_rs: number | null;
+  test_rmse_rs: number | null;
+  walk_forward_folds: WalkForwardFold[];
+  data_provenance: string;
+}
+
+export interface ForecastModelPerformance {
+  is_fitted: boolean;
+  status: string;
+  cutoff_year: string;
+  latest_production_tonnes: number;
+  baseline_weekly_tonnes: number;
+  test_mae_tonnes: number;
+  test_mape_pct: number;
+  test_rmse_tonnes: number;
+  data_provenance: string;
+}
+
+export interface ModelPerformanceResponse {
+  district: string;
+  crop: string;
+  price_elasticity_model: PriceModelPerformance;
+  flow_forecast_model: ForecastModelPerformance;
+  limitations: string[];
+}
+
+export const getModelPerformance = async (
+  district: string,
+  crop: string
+): Promise<ModelPerformanceResponse | { error: true; message: string }> => {
+  const response = await api.get<ModelPerformanceResponse>(`/model-performance/${district}/${crop}`);
+  return response.data;
+};
+
+export interface OutcomeHistoryResponse {
+  district: string;
+  crop: string;
+  total_reconciled_alerts: number;
+  calibration_status: string;
+  scenario_win_counts: Record<string, number>;
+  scenario_win_percentages: Record<string, number>;
+  data_provenance: string;
+  caution_note: string;
+}
+
+export const getOutcomeHistory = async (
+  district: string,
+  crop: string
+): Promise<OutcomeHistoryResponse | { error: true; message: string }> => {
+  const response = await api.get<OutcomeHistoryResponse>(`/outcome-history/${district}/${crop}`);
+  return response.data;
+};
+
+export interface DataQualityFileReport {
+  status: string;
+  row_count: number;
+  year_min?: string | number | null;
+  year_max?: string | number | null;
+  verdict: string;
+}
+
+export interface DataQualityResponse {
+  district_filter?: string | null;
+  crop_filter?: string | null;
+  files: Record<string, DataQualityFileReport>;
+}
+
+export const getDataQuality = async (
+  district: string,
+  crop: string
+): Promise<DataQualityResponse | { error: true; message: string }> => {
+  const response = await api.get<DataQualityResponse>(`/data-quality/${district}/${crop}`);
+  return response.data;
+};
+
+export const getSowingAdvisory = async (
+  state: string,
+  district: string,
+  crop: string
+): Promise<SowingAdvisoryResponse | { error: true; message: string }> => {
+  const response = await api.get<SowingAdvisoryResponse>(`/sowing-advisory/${state}/${district}/${crop}`);
+  return response.data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Location Summary API (GET /location-summary) — map tap-to-query
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ResolvedLocation {
+  status: string;
+  district: string;
+  state: string;
+  distance_km: number;
+  centroid_lat: number;
+  centroid_lon: number;
+  source: string;
+}
+
+export interface LocationFullTwinPayload {
+  recommendation_id: string;
+  selected_action: string;
+  action_type: string;
+  worst_case_guaranteed_payoff_rs: number;
+  max_regret_rs: number;
+  confidence_label: string;
+  confidence_score: number;
+  price_forecast: {
+    predicted_modal_price_rs_per_qtl: number;
+    price_range_low_rs: number;
+    price_range_high_rs: number;
+    confidence_label: string;
+  };
+  error?: string;
+}
+
+export interface LocationSummaryResponse {
+  status: string;
+  input_coordinates: { lat: number; lon: number };
+  resolved_location?: ResolvedLocation | null;
+  state?: string | null;
+  district?: string | null;
+  crop?: string | null;
+  capability_tier: string;
+  confidence_label: string;
+  tier_explanation: string;
+  sowing_advisory?: {
+    recommended_window: SowingWindow;
+    target_season: string;
+    bottleneck_risk_reduction_pct: number;
+    optimization_status: string;
+  } | null;
+  satellite_climate?: Record<string, any> | null;
+  full_twin?: LocationFullTwinPayload | null;
+  live_snapshot?: Record<string, any> | null;
+  reason?: string;
+  provenance: string;
+}
+
+export const getLocationSummary = async (
+  lat: number,
+  lon: number,
+  crop: string = 'Rice'
+): Promise<LocationSummaryResponse | { error: true; message: string }> => {
+  const response = await api.get<LocationSummaryResponse>(`/location-summary`, {
+    params: { lat, lon, crop },
+  });
   return response.data;
 };

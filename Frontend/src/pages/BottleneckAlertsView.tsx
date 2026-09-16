@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '@/store/appStore';
 import { getBottleneckDetection, type BottleneckDetectionResponse } from '@/api/client';
+import { riskFromUtilizationRatio } from '@/lib/risk';
 import { Loader2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -146,7 +147,11 @@ export const BottleneckAlertsView = () => {
                             <div className="flex items-center gap-2">
                               <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div
-                                  className={clsx('h-full', b.utilization_ratio >= 1 ? 'bg-[#c0392b]' : b.utilization_ratio >= 0.65 ? 'bg-[#f5b041]' : 'bg-[#1e847f]')}
+                                  className={clsx('h-full', {
+                                    High: 'bg-[#c0392b]',
+                                    Medium: 'bg-[#f5b041]',
+                                    Low: 'bg-[#1e847f]',
+                                  }[riskFromUtilizationRatio(b.utilization_ratio)])}
                                   style={{ width: `${Math.min(100, b.utilization_ratio * 100)}%` }}
                                 />
                               </div>

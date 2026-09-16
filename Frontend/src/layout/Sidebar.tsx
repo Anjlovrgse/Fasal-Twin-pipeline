@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Leaf,
   LayoutDashboard,
@@ -11,10 +11,12 @@ import {
   BookOpen,
   Settings,
   LogOut,
-  ChevronLeft
+  ChevronLeft,
+  CalendarClock
 } from 'lucide-react';
 import clsx from 'clsx';
 import { getHealth } from '@/api/client';
+import { useAppStore } from '@/store/appStore';
 
 const navGroups = [
   {
@@ -31,6 +33,7 @@ const navGroups = [
       { name: 'Multi-District Priority', path: '/priority', icon: Map },
       { name: 'Historical Backtest', path: '/backtest', icon: History },
       { name: 'Confidence & Evidence', path: '/evidence', icon: ShieldCheck },
+      { name: 'Sowing Advisory', path: '/sowing', icon: CalendarClock },
     ]
   },
   {
@@ -43,6 +46,9 @@ const navGroups = [
 ];
 
 export const Sidebar = () => {
+  const navigate = useNavigate();
+  const resetSession = useAppStore((s) => s.resetSession);
+
   // Real backend connectivity, not a decorative always-green dot: polls /health
   // on a light interval so the indicator reflects what the rest of the app is
   // actually seeing, including recovering automatically once the backend returns.
@@ -120,7 +126,11 @@ export const Sidebar = () => {
               <div className="text-xs text-gray-400">Agricultural Officer</div>
             </div>
           </div>
-          <button className="text-gray-400 hover:text-white transition-colors">
+          <button
+            onClick={() => { resetSession(); navigate('/'); }}
+            title="Reset session (there is no real authentication in this demo)"
+            className="text-gray-400 hover:text-white transition-colors"
+          >
             <LogOut className="w-4 h-4" />
           </button>
         </div>

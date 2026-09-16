@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Map, { Marker, NavigationControl, Source, type MapRef } from 'react-map-gl/maplibre';
+import Map, { Marker, NavigationControl, Source, Popup, type MapRef, type MapLayerMouseEvent } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useAppStore } from '@/store/appStore';
-import { mockNodes } from '@/data/mockData';
-import { MapPin, ThermometerSun, IndianRupee, CloudRain, Loader2, AlertTriangle } from 'lucide-react';
+import { MapPin, ThermometerSun, IndianRupee, CloudRain, Loader2, AlertTriangle, X, MapPinned } from 'lucide-react';
 import clsx from 'clsx';
 import {
   getSEECropMaturity,
   getSEEPriceTrend,
   getSEEWeatherAdvisory,
+  getBottleneckDetection,
+  getCoverage,
+  getLocationSummary,
   type SEECropMaturityResponse,
   type SEEPriceTrendResponse,
   type SEEWeatherAdvisoryResponse,
+  type BottleneckNode,
+  type LocationSummaryResponse,
 } from '@/api/client';
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || '';
@@ -72,9 +76,94 @@ export const RegionalMap = () => {
   const { setSelectedNodeId, selectedNodeId, activeDistrict, activeCrop } = useAppStore();
   const mapRef = useRef<MapRef>(null);
   const hasFlownIn = useRef(false);
+  const mapLoaded = useRef(false);
 
   // ── Layer toggle booleans ──────────────────────────────────────────────────
   const [layers, setLayers] = useState({ health: false, price: false, weather: false });
+
+  // ── Real map nodes for the active district — this is the fix for the map
+  // never relocating: previously the marker set was a hardcoded Alappuzha-only
+  // mock array, so switching district left the same 6 markers on screen and the
+  // camera never moved. Now it fetches this district's real bottleneck nodes
+  // (with real lat/lon from network_capacity.csv) and flies the camera to them.
+  const [mapNodes, setMapNodes] = useState<BottleneckNode[]>([]);
+  const [mapNodesComputable, setMapNodesComputable] = useState(true);
+  const [mapNodesLoading, setMapNodesLoading] = useState(false);
+
+  // District centroid lookup (from /coverage) — used to re-center the camera
+  // even for Tier 2/3 districts that have no mapped node topology at all.
+  const districtCentroids = useRef<Record<string, { lat: number; lon: number }>>({});
+
+  useEffect(() => {
+    getCoverage().then((result) => {
+      if ('error' in result && result.error) return;
+      const coverage = result as import('@/api/client').CoverageResponse;
+      const lookup: Record<string, { lat: number; lon: number }> = {};
+      for (const d of [...coverage.tier_1_districts, ...coverage.tier_2_districts]) {
+        if (d.latitude != null && d.longitude != null) {
+          lookup[d.district.toLowerCase()] = { lat: d.latitude, lon: d.longitude };
+        }
+      }
+      districtCentroids.current = lookup;
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMapNodesLoading(true);
+    getBottleneckDetection(activeDistrict, activeCrop).then((result) => {
+      if (cancelled) return;
+      setMapNodesLoading(false);
+      if ('error' in result && result.error) {
+        setMapNodes([]);
+        setMapNodesComputable(false);
+        return;
+      }
+      const detection = result as import('@/api/client').BottleneckDetectionResponse;
+      const baseline = detection.scenarios?.baseline;
+      if (baseline?.computable) {
+        setMapNodes(baseline.bottlenecks.filter((n) => n.latitude != null && n.longitude != null));
+        setMapNodesComputable(true);
+      } else {
+        setMapNodes([]);
+        setMapNodesComputable(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [activeDistrict, activeCrop]);
+
+  // Re-center the camera whenever the resolved node set (or district, for the
+  // no-topology case) changes — a fast pan/zoom, distinct from the one-time
+  // cinematic fly-in on first load. Skipped for the very first resolution so
+  // it doesn't fight the fly-in's own camera animation (the fly-in's target
+  // already frames the default district correctly).
+  const isFirstNodeResolution = useRef(true);
+  useEffect(() => {
+    if (mapNodesLoading) return;
+    if (isFirstNodeResolution.current) {
+      isFirstNodeResolution.current = false;
+      return;
+    }
+    if (!mapLoaded.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (mapNodes.length > 0) {
+      const lons = mapNodes.map((n) => n.longitude as number);
+      const lats = mapNodes.map((n) => n.latitude as number);
+      const bounds: [[number, number], [number, number]] = [
+        [Math.min(...lons), Math.min(...lats)],
+        [Math.max(...lons), Math.max(...lats)],
+      ];
+      map.fitBounds(bounds, { padding: 90, duration: 1200, maxZoom: 12.5, pitch: 45 });
+    } else {
+      const centroid = districtCentroids.current[activeDistrict.toLowerCase()];
+      if (centroid) {
+        map.flyTo({ center: [centroid.lon, centroid.lat], zoom: 9.5, pitch: 0, bearing: 0, duration: 1200, essential: true });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapNodes, mapNodesLoading, activeDistrict]);
 
   // Three-tier map style fallback so the map canvas can never render fully blank:
   // 'primary' (MapTiler) -> 'demo' (demotiles.maplibre.org, still needs network) ->
@@ -95,6 +184,25 @@ export const RegionalMap = () => {
   const [healthState, setHealthState] = useState<LayerState<SEECropMaturityResponse>>(initialLayerState());
   const [priceState, setPriceState]   = useState<LayerState<SEEPriceTrendResponse>>(initialLayerState());
   const [weatherState, setWeatherState] = useState<LayerState<SEEWeatherAdvisoryResponse>>(initialLayerState());
+
+  // ── Tap-to-query: click anywhere on the map to reverse-geocode that point and
+  // pull the same composite tier/sowing/price summary GET /location-summary
+  // bundles for a single tap, shown in a popup anchored at the tapped coordinate.
+  const [tapPoint, setTapPoint] = useState<{ lng: number; lat: number } | null>(null);
+  const [tapState, setTapState] = useState<LayerState<LocationSummaryResponse>>(initialLayerState());
+
+  const handleMapClick = useCallback((e: MapLayerMouseEvent) => {
+    const { lng, lat } = e.lngLat;
+    setTapPoint({ lng, lat });
+    setTapState({ loading: true, error: null, data: null });
+    getLocationSummary(lat, lng, activeCrop).then((result) => {
+      if ('error' in result && result.error) {
+        setTapState({ loading: false, error: 'Backend not connected', data: null });
+      } else {
+        setTapState({ loading: false, error: null, data: result as LocationSummaryResponse });
+      }
+    });
+  }, [activeCrop]);
 
   // ── Fetch helpers — each independent ──────────────────────────────────────
 
@@ -155,6 +263,7 @@ export const RegionalMap = () => {
       <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
         <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-md border border-gray-200 shadow-sm pointer-events-auto">
           <h3 className="font-semibold text-gray-800 text-sm">Regional Twin</h3>
+          <p className="text-[10px] text-gray-400 mt-0.5">Tap anywhere for a location summary</p>
         </div>
 
         <div className="flex items-center gap-2 pointer-events-auto">
@@ -358,6 +467,7 @@ export const RegionalMap = () => {
           }
           style={{ width: '100%', height: '100%' }}
           mapStyle={effectiveMapStyle}
+          onClick={handleMapClick}
           onLoad={() => {
             // The one deliberate camera fly-in: a single wide-to-close descent into the
             // Kuttanad basin the first time the map becomes ready, never repeated on
@@ -366,8 +476,10 @@ export const RegionalMap = () => {
               hasFlownIn.current = true;
               mapRef.current?.flyTo({ ...TARGET_VIEW, duration: 2600, essential: true });
             }
+            mapLoaded.current = true;
           }}
           onError={(e) => {
+            mapLoaded.current = false;
             setMapStyleTier((prev) => {
               if (prev === 'primary') return 'demo';
               if (prev === 'demo') return 'offline';
@@ -389,62 +501,167 @@ export const RegionalMap = () => {
 
           <NavigationControl position="bottom-right" />
 
-          {mockNodes.map(node => (
-            <Marker
-              key={node.id}
-              longitude={node.coordinates[0]}
-              latitude={node.coordinates[1]}
-              anchor="bottom"
-              onClick={e => {
-                e.originalEvent.stopPropagation();
-                setSelectedNodeId(node.id);
-              }}
-            >
-              <div
-                className={clsx(
-                  'relative group cursor-pointer transform transition-transform',
-                  selectedNodeId === node.id ? 'scale-125' : 'hover:scale-110'
-                )}
+          {mapNodes.map(node => {
+            const status = node.is_active_alert ? 'Critical' : node.utilization_ratio >= 0.7 ? 'Warning' : 'Normal';
+            return (
+              <Marker
+                key={node.node_id}
+                longitude={node.longitude as number}
+                latitude={node.latitude as number}
+                anchor="bottom"
+                onClick={e => {
+                  e.originalEvent.stopPropagation();
+                  setSelectedNodeId(node.node_id);
+                }}
               >
-                {/* Occupancy Ring */}
-                {node.type !== 'Farm Block' && node.type !== 'FPO' && (
-                  <div
-                    className="absolute -inset-2 rounded-full border-2 opacity-50 pointer-events-none"
-                    style={{
-                      borderColor:
-                        node.status === 'Critical'
-                          ? '#c0392b'
-                          : node.status === 'Warning'
-                          ? '#f5b041'
-                          : '#1e847f',
-                    }}
-                  />
-                )}
-
-                {/* Node Icon */}
                 <div
                   className={clsx(
-                    'p-2 rounded-full shadow-md flex items-center justify-center',
-                    node.type === 'Farm Block'
-                      ? 'bg-[#1e847f] text-white'
-                      : node.status === 'Critical'
-                      ? 'bg-[#c0392b] text-white'
-                      : node.status === 'Warning'
-                      ? 'bg-[#f5b041] text-white'
-                      : 'bg-white text-[#2d3436] border border-gray-200'
+                    'relative group cursor-pointer transform transition-transform',
+                    selectedNodeId === node.node_id ? 'scale-125' : 'hover:scale-110'
                   )}
                 >
-                  <MapPin className="w-4 h-4" />
+                  {/* Occupancy Ring */}
+                  {node.node_type !== 'fpo' && (
+                    <div
+                      className="absolute -inset-2 rounded-full border-2 opacity-50 pointer-events-none"
+                      style={{
+                        borderColor:
+                          status === 'Critical'
+                            ? '#c0392b'
+                            : status === 'Warning'
+                            ? '#f5b041'
+                            : '#1e847f',
+                      }}
+                    />
+                  )}
+
+                  {/* Node Icon */}
+                  <div
+                    className={clsx(
+                      'p-2 rounded-full shadow-md flex items-center justify-center',
+                      node.node_type === 'fpo'
+                        ? 'bg-[#1e847f] text-white'
+                        : status === 'Critical'
+                        ? 'bg-[#c0392b] text-white'
+                        : status === 'Warning'
+                        ? 'bg-[#f5b041] text-white'
+                        : 'bg-white text-[#2d3436] border border-gray-200'
+                    )}
+                  >
+                    <MapPin className="w-4 h-4" />
+                  </div>
+
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[220px] whitespace-normal px-2 py-1 bg-[#1a1e23] text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    {node.node_name}
+                  </div>
+                </div>
+              </Marker>
+            );
+          })}
+
+          {/* Tap-to-query popup — reverse-geocodes wherever the user taps and shows
+              the same tier/sowing/price composite GET /location-summary bundles. */}
+          {tapPoint && (
+            <Popup
+              longitude={tapPoint.lng}
+              latitude={tapPoint.lat}
+              anchor="bottom"
+              closeButton={false}
+              closeOnClick={false}
+              maxWidth="280px"
+              className="fasal-tap-popup"
+            >
+              <div className="text-xs w-64">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-bold text-gray-800 flex items-center gap-1.5">
+                    <MapPinned className="w-3.5 h-3.5 text-[#1e847f]" />
+                    Tapped Location
+                  </p>
+                  <button
+                    onClick={() => { setTapPoint(null); setTapState(initialLayerState()); }}
+                    className="text-gray-400 hover:text-gray-700"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
-                {/* Tooltip */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-2 py-1 bg-[#1a1e23] text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  {node.name}
-                </div>
+                {tapState.loading && (
+                  <div className="flex items-center gap-2 text-gray-500 py-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Resolving…</span>
+                  </div>
+                )}
+
+                {!tapState.loading && tapState.error && (
+                  <div className="flex items-center gap-1.5 text-red-600">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Backend not connected</span>
+                  </div>
+                )}
+
+                {!tapState.loading && tapState.data && tapState.data.status !== 'resolved' && (
+                  <p className="text-gray-500 leading-snug">{tapState.data.reason ?? 'Location could not be resolved.'}</p>
+                )}
+
+                {!tapState.loading && tapState.data && tapState.data.status === 'resolved' && (
+                  <div className="space-y-1.5 text-gray-700">
+                    <div className="flex justify-between">
+                      <span>District</span>
+                      <span className="font-semibold">{tapState.data.district}, {tapState.data.state}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Tier</span>
+                      <span className="font-semibold">{tapState.data.capability_tier.replace('TIER_', 'Tier ').replace(/_/g, ' ')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Confidence</span>
+                      <span className={clsx(
+                        'font-semibold',
+                        tapState.data.confidence_label === 'LOW' ? 'text-[#c0392b]' :
+                        tapState.data.confidence_label === 'MEDIUM' || tapState.data.confidence_label === 'MODERATE' ? 'text-[#f5b041]' :
+                        'text-[#1e847f]'
+                      )}>
+                        {tapState.data.confidence_label}
+                      </span>
+                    </div>
+                    {tapState.data.full_twin && !tapState.data.full_twin.error && (
+                      <>
+                        <div className="pt-1.5 mt-1.5 border-t border-gray-100">
+                          <p className="text-gray-500 mb-0.5">Recommended action</p>
+                          <p className="font-semibold text-[#1e847f] leading-snug">{tapState.data.full_twin.selected_action}</p>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>14d price forecast</span>
+                          <span className="font-semibold">
+                            ₹{tapState.data.full_twin.price_forecast.price_range_low_rs.toFixed(0)}–{tapState.data.full_twin.price_forecast.price_range_high_rs.toFixed(0)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {tapState.data.sowing_advisory && (
+                      <div className="pt-1.5 mt-1.5 border-t border-gray-100">
+                        <p className="text-gray-500 mb-0.5">Recommended sowing window</p>
+                        <p className="font-semibold">
+                          {tapState.data.sowing_advisory.recommended_window.start_date} – {tapState.data.sowing_advisory.recommended_window.end_date}
+                        </p>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-gray-400 italic pt-1.5 mt-1.5 border-t border-gray-100 leading-tight">
+                      {tapState.data.tier_explanation}
+                    </p>
+                  </div>
+                )}
               </div>
-            </Marker>
-          ))}
+            </Popup>
+          )}
         </Map>
+
+        {!mapNodesLoading && !mapNodesComputable && (
+          <div className="absolute bottom-4 left-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-md shadow-sm pointer-events-none">
+            No mapped network topology for {activeDistrict} — showing regional context only.
+          </div>
+        )}
       </div>
     </div>
   );

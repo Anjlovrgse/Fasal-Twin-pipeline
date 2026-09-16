@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
 import clsx from 'clsx';
 import { getPriorityView, type PriorityDistrictItem } from '@/api/client';
+import { riskFromCompositeScore as getRiskCategory } from '@/lib/risk';
 
 // Confidence label → badge element
 const getConfidenceBadge = (label: string) => {
@@ -15,13 +16,6 @@ const getConfidenceBadge = (label: string) => {
     return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border border-[#1e847f] text-[#1e847f]">Moderate</span>;
   }
   return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border border-[#c0392b] text-[#c0392b]">Low</span>;
-};
-
-// Composite risk score → visual category
-const getRiskCategory = (score: number): 'High' | 'Medium' | 'Low' => {
-  if (score >= 0.65) return 'High';
-  if (score >= 0.35) return 'Medium';
-  return 'Low';
 };
 
 const getRiskColor = (risk: 'High' | 'Medium' | 'Low') => {

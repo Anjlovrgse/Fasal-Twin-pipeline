@@ -21,18 +21,27 @@ interface AppState {
   setSimulationScenario: (scenario: 'Baseline' | 'Weather-shift' | 'Regional shock' | 'Capacity shock') => void;
   setInterventionEnabled: (enabled: boolean) => void;
   setEvidenceDrawerOpen: (open: boolean) => void;
+  // There is no real authentication in this app (the sidebar profile is a fixed
+  // demo user) — "logging out" honestly means resetting the working session
+  // back to its defaults, not pretending to sign out of an account that never
+  // signed in.
+  resetSession: () => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+const DEFAULT_STATE = {
   activeState: 'Kerala',
   activeDistrict: 'Alappuzha',
   activeCrop: 'Rice',
   dateRange: 'Oct 18-26',
-  selectedNodeId: null,
+  selectedNodeId: null as string | null,
   isSimulationPlaying: false,
-  simulationScenario: 'Baseline',
+  simulationScenario: 'Baseline' as const,
   interventionEnabled: false,
   isEvidenceDrawerOpen: false,
+};
+
+export const useAppStore = create<AppState>((set) => ({
+  ...DEFAULT_STATE,
 
   setActiveState: (state) => set({ activeState: state }),
   setActiveDistrict: (district) => set({ activeDistrict: district }),
@@ -43,4 +52,5 @@ export const useAppStore = create<AppState>((set) => ({
   setSimulationScenario: (scenario) => set({ simulationScenario: scenario }),
   setInterventionEnabled: (enabled) => set({ interventionEnabled: enabled }),
   setEvidenceDrawerOpen: (open) => set({ isEvidenceDrawerOpen: open }),
+  resetSession: () => set({ ...DEFAULT_STATE }),
 }));

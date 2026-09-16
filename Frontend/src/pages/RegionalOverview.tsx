@@ -15,6 +15,7 @@ import {
 } from '@/api/client';
 import { Loader2, AlertTriangle, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
+import { riskFromUtilizationRatio } from '@/lib/risk';
 
 // ── District / crop presets for the switcher ─────────────────────────────────
 interface DistrictPreset {
@@ -190,7 +191,7 @@ export const RegionalOverview = () => {
     ? baseline!.bottlenecks.filter((b) => b.node_type === 'mandi').reduce((sum, b) => sum + b.capacity_tonnes, 0)
     : null;
   const riskLevel = baselineComputable
-    ? (baseline!.max_utilization_ratio >= 1 ? 'High' : baseline!.max_utilization_ratio >= 0.65 ? 'Medium' : 'Low')
+    ? riskFromUtilizationRatio(baseline!.max_utilization_ratio)
     : null;
   const valueAtRiskCr = baselineComputable
     ? (baseline!.total_overshoot_tonnes * VALUE_AT_RISK_RS_PER_TONNE) / 1e7
@@ -237,13 +238,20 @@ export const RegionalOverview = () => {
         />
       </div>
 
-      {/* Main Content Area — a fixed-ish min-height row (not flex-1/min-h-0) so the
-          Network Parameters table below, which can be many rows of real data, pushes
-          the page taller instead of squeezing this row's map and factors panel down
-          to near-zero height fighting for the same fixed viewport budget. */}
-      <div className="flex flex-col lg:flex-row gap-6 mb-6 min-h-[520px]">
+      {/* Main Content Area — a fixed height (not min-height) row so the Network
+          Parameters table below, which can be many rows of real data, pushes the
+          page taller instead of squeezing this row down. A *fixed* height (rather
+          than min-height alone) matters here: without it, nothing in this row has
+          a definite height for ContributingFactors' internal overflow-y-auto to
+          scroll against, so its content just grows unbounded instead of scrolling
+          — and since this row stretches its children by default, that growth drags
+          the map card up to match it (previously observed rendering ~1650px tall
+          instead of the intended ~520px). min-h-0 on each nested flex child is
+          required for the same reason: flex items refuse to shrink below their
+          content's natural size unless explicitly told they're allowed to. */}
+      <div className="flex flex-col lg:flex-row gap-6 mb-6 h-[520px]">
         {/* Left Column: Factors */}
-        <div className="w-full lg:w-1/3 xl:w-1/4 shrink-0">
+        <div className="w-full lg:w-1/3 xl:w-1/4 shrink-0 min-h-0">
           <ContributingFactors
             factors={evidenceChain}
             loading={anLoading}
@@ -253,8 +261,8 @@ export const RegionalOverview = () => {
         </div>
 
         {/* Right Column: Map & Table container */}
-        <div className="flex-1 flex flex-col min-w-0 gap-6 relative">
-          <div className="flex-1 min-h-[400px]">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 gap-6 relative">
+          <div className="flex-1 min-h-0">
             <RegionalMap />
           </div>
           <BottleneckAlert />

@@ -12,6 +12,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/alerts': 'Bottleneck Alerts',
   '/schemes': 'Scheme Advisor',
   '/settings': 'System Status',
+  '/sowing': 'Sowing Advisory',
 };
 
 export const Header = () => {
