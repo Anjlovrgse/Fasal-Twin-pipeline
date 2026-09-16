@@ -472,6 +472,8 @@ def get_bottlenecks(
                         "overshoot_pct": b.overshoot_pct,
                         "utilization_ratio": b.utilization_ratio,
                         "is_active_alert": b.is_active_alert,
+                        "latitude": b.latitude,
+                        "longitude": b.longitude,
                     }
                     for b in rep.bottlenecks
                 ],

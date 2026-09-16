@@ -162,6 +162,8 @@ class BottleneckNodeResponse(BaseModel):
     overshoot_pct: float
     utilization_ratio: float
     is_active_alert: bool
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class ScenarioBottlenecksResponse(BaseModel):

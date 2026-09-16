@@ -19,6 +19,7 @@ if str(repo_root) not in sys.path:
 from src.counterfactual_optimizer import RobustRecommendation, CounterfactualOptimizer
 from src.confidence_gate import ConfidenceAssessment, ConfidenceGate
 from src.bottleneck_detector import BottleneckDetector
+from src.forecast_model import ForecastModel
 
 
 @dataclass
@@ -67,17 +68,30 @@ class DecisionExplainer:
         """
         chain: List[EvidenceItem] = []
 
-        # 1. Production Fact
-        chain.append(
-            EvidenceItem(
-                fact=(
-                    f"In {self.district}, rice production baseline for peak Punja harvest season "
-                    f"is ~96,050 tonnes, creating weekly peak harvest inflow of ~12,006 tonnes across local FPOs."
-                ),
-                source="Kerala Department of Economics & Statistics (DES) / EARAS 2023 Table 5.1.1",
-                category="production",
+        # 1. Production Fact — computed fresh per district/crop rather than a fixed
+        # literal, so a Kottayam explanation doesn't silently repeat Alappuzha's numbers.
+        try:
+            forecast_model = ForecastModel(district=self.district, crop=self.crop).fit()
+            season_tonnes = forecast_model.latest_production_tonnes
+            weekly_tonnes = forecast_model.baseline_weekly_tonnes
+            chain.append(
+                EvidenceItem(
+                    fact=(
+                        f"In {self.district}, rice production baseline for peak Punja harvest season "
+                        f"is ~{season_tonnes:,.0f} tonnes, creating weekly peak harvest inflow of ~{weekly_tonnes:,.0f} tonnes across local FPOs."
+                    ),
+                    source="Kerala Department of Economics & Statistics (DES) / EARAS 2023 Table 5.1.1",
+                    category="production",
+                )
             )
-        )
+        except Exception:
+            chain.append(
+                EvidenceItem(
+                    fact=f"Production baseline data for {self.district} ({self.crop}) could not be resolved.",
+                    source="Kerala Department of Economics & Statistics (DES) / EARAS 2023 Table 5.1.1",
+                    category="production",
+                )
+            )
 
         # 2. Weather Dynamics
         chain.append(
@@ -106,17 +120,39 @@ class DecisionExplainer:
             )
         )
 
-        # 4. Logistics Constraints
-        chain.append(
-            EvidenceItem(
-                fact=(
-                    f"Principal Mandi M1 (Alappuzha) has a rated intake capacity of 1,200 tonnes, "
-                    f"facing severe overshoot of over 6,000 tonnes during peak arrival weeks without intervention."
-                ),
-                source="Regional Logistics & Mandi Capacity Registry (network_capacity.csv)",
-                category="logistics",
+        # 4. Logistics Constraints — the real top-overshoot node for this district's
+        # baseline scenario, not a fixed reference to Alappuzha's Mandi M1.
+        try:
+            baseline_report = BottleneckDetector(district=self.district, crop=self.crop).detect_all_bottlenecks()["baseline"]
+            top_node = baseline_report.bottlenecks[0] if baseline_report.computable and baseline_report.bottlenecks else None
+            if top_node:
+                chain.append(
+                    EvidenceItem(
+                        fact=(
+                            f"{top_node.node_name} ({top_node.district}) has a rated intake capacity of "
+                            f"{top_node.capacity_tonnes:,.0f} tonnes, facing overshoot of {top_node.overshoot_tonnes:,.0f} tonnes "
+                            f"({top_node.overshoot_pct:.0f}% over capacity) during peak arrival weeks without intervention."
+                        ),
+                        source="Regional Logistics & Mandi Capacity Registry (network_capacity.csv)",
+                        category="logistics",
+                    )
+                )
+            else:
+                chain.append(
+                    EvidenceItem(
+                        fact=f"No node in {self.district}'s mapped network is projected to exceed capacity under the baseline scenario.",
+                        source="Regional Logistics & Mandi Capacity Registry (network_capacity.csv)",
+                        category="logistics",
+                    )
+                )
+        except Exception:
+            chain.append(
+                EvidenceItem(
+                    fact=f"Logistics capacity data for {self.district} could not be resolved.",
+                    source="Regional Logistics & Mandi Capacity Registry (network_capacity.csv)",
+                    category="logistics",
+                )
             )
-        )
 
         # 5. Robust Selection Rule
         chain.append(

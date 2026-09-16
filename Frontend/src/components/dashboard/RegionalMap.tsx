@@ -2,16 +2,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Map, { Marker, NavigationControl, Source, type MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useAppStore } from '@/store/appStore';
-import { mockNodes } from '@/data/mockData';
 import { MapPin, ThermometerSun, IndianRupee, CloudRain, Loader2, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import {
   getSEECropMaturity,
   getSEEPriceTrend,
   getSEEWeatherAdvisory,
+  getBottleneckDetection,
+  getCoverage,
   type SEECropMaturityResponse,
   type SEEPriceTrendResponse,
   type SEEWeatherAdvisoryResponse,
+  type BottleneckNode,
 } from '@/api/client';
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY || '';
@@ -72,9 +74,94 @@ export const RegionalMap = () => {
   const { setSelectedNodeId, selectedNodeId, activeDistrict, activeCrop } = useAppStore();
   const mapRef = useRef<MapRef>(null);
   const hasFlownIn = useRef(false);
+  const mapLoaded = useRef(false);
 
   // ── Layer toggle booleans ──────────────────────────────────────────────────
   const [layers, setLayers] = useState({ health: false, price: false, weather: false });
+
+  // ── Real map nodes for the active district — this is the fix for the map
+  // never relocating: previously the marker set was a hardcoded Alappuzha-only
+  // mock array, so switching district left the same 6 markers on screen and the
+  // camera never moved. Now it fetches this district's real bottleneck nodes
+  // (with real lat/lon from network_capacity.csv) and flies the camera to them.
+  const [mapNodes, setMapNodes] = useState<BottleneckNode[]>([]);
+  const [mapNodesComputable, setMapNodesComputable] = useState(true);
+  const [mapNodesLoading, setMapNodesLoading] = useState(false);
+
+  // District centroid lookup (from /coverage) — used to re-center the camera
+  // even for Tier 2/3 districts that have no mapped node topology at all.
+  const districtCentroids = useRef<Record<string, { lat: number; lon: number }>>({});
+
+  useEffect(() => {
+    getCoverage().then((result) => {
+      if ('error' in result && result.error) return;
+      const coverage = result as import('@/api/client').CoverageResponse;
+      const lookup: Record<string, { lat: number; lon: number }> = {};
+      for (const d of [...coverage.tier_1_districts, ...coverage.tier_2_districts]) {
+        if (d.latitude != null && d.longitude != null) {
+          lookup[d.district.toLowerCase()] = { lat: d.latitude, lon: d.longitude };
+        }
+      }
+      districtCentroids.current = lookup;
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMapNodesLoading(true);
+    getBottleneckDetection(activeDistrict, activeCrop).then((result) => {
+      if (cancelled) return;
+      setMapNodesLoading(false);
+      if ('error' in result && result.error) {
+        setMapNodes([]);
+        setMapNodesComputable(false);
+        return;
+      }
+      const detection = result as import('@/api/client').BottleneckDetectionResponse;
+      const baseline = detection.scenarios?.baseline;
+      if (baseline?.computable) {
+        setMapNodes(baseline.bottlenecks.filter((n) => n.latitude != null && n.longitude != null));
+        setMapNodesComputable(true);
+      } else {
+        setMapNodes([]);
+        setMapNodesComputable(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [activeDistrict, activeCrop]);
+
+  // Re-center the camera whenever the resolved node set (or district, for the
+  // no-topology case) changes — a fast pan/zoom, distinct from the one-time
+  // cinematic fly-in on first load. Skipped for the very first resolution so
+  // it doesn't fight the fly-in's own camera animation (the fly-in's target
+  // already frames the default district correctly).
+  const isFirstNodeResolution = useRef(true);
+  useEffect(() => {
+    if (mapNodesLoading) return;
+    if (isFirstNodeResolution.current) {
+      isFirstNodeResolution.current = false;
+      return;
+    }
+    if (!mapLoaded.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (mapNodes.length > 0) {
+      const lons = mapNodes.map((n) => n.longitude as number);
+      const lats = mapNodes.map((n) => n.latitude as number);
+      const bounds: [[number, number], [number, number]] = [
+        [Math.min(...lons), Math.min(...lats)],
+        [Math.max(...lons), Math.max(...lats)],
+      ];
+      map.fitBounds(bounds, { padding: 90, duration: 1200, maxZoom: 12.5, pitch: 45 });
+    } else {
+      const centroid = districtCentroids.current[activeDistrict.toLowerCase()];
+      if (centroid) {
+        map.flyTo({ center: [centroid.lon, centroid.lat], zoom: 9.5, pitch: 0, bearing: 0, duration: 1200, essential: true });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapNodes, mapNodesLoading, activeDistrict]);
 
   // Three-tier map style fallback so the map canvas can never render fully blank:
   // 'primary' (MapTiler) -> 'demo' (demotiles.maplibre.org, still needs network) ->
@@ -366,8 +453,10 @@ export const RegionalMap = () => {
               hasFlownIn.current = true;
               mapRef.current?.flyTo({ ...TARGET_VIEW, duration: 2600, essential: true });
             }
+            mapLoaded.current = true;
           }}
           onError={(e) => {
+            mapLoaded.current = false;
             setMapStyleTier((prev) => {
               if (prev === 'primary') return 'demo';
               if (prev === 'demo') return 'offline';
@@ -389,62 +478,71 @@ export const RegionalMap = () => {
 
           <NavigationControl position="bottom-right" />
 
-          {mockNodes.map(node => (
-            <Marker
-              key={node.id}
-              longitude={node.coordinates[0]}
-              latitude={node.coordinates[1]}
-              anchor="bottom"
-              onClick={e => {
-                e.originalEvent.stopPropagation();
-                setSelectedNodeId(node.id);
-              }}
-            >
-              <div
-                className={clsx(
-                  'relative group cursor-pointer transform transition-transform',
-                  selectedNodeId === node.id ? 'scale-125' : 'hover:scale-110'
-                )}
+          {mapNodes.map(node => {
+            const status = node.is_active_alert ? 'Critical' : node.utilization_ratio >= 0.7 ? 'Warning' : 'Normal';
+            return (
+              <Marker
+                key={node.node_id}
+                longitude={node.longitude as number}
+                latitude={node.latitude as number}
+                anchor="bottom"
+                onClick={e => {
+                  e.originalEvent.stopPropagation();
+                  setSelectedNodeId(node.node_id);
+                }}
               >
-                {/* Occupancy Ring */}
-                {node.type !== 'Farm Block' && node.type !== 'FPO' && (
-                  <div
-                    className="absolute -inset-2 rounded-full border-2 opacity-50 pointer-events-none"
-                    style={{
-                      borderColor:
-                        node.status === 'Critical'
-                          ? '#c0392b'
-                          : node.status === 'Warning'
-                          ? '#f5b041'
-                          : '#1e847f',
-                    }}
-                  />
-                )}
-
-                {/* Node Icon */}
                 <div
                   className={clsx(
-                    'p-2 rounded-full shadow-md flex items-center justify-center',
-                    node.type === 'Farm Block'
-                      ? 'bg-[#1e847f] text-white'
-                      : node.status === 'Critical'
-                      ? 'bg-[#c0392b] text-white'
-                      : node.status === 'Warning'
-                      ? 'bg-[#f5b041] text-white'
-                      : 'bg-white text-[#2d3436] border border-gray-200'
+                    'relative group cursor-pointer transform transition-transform',
+                    selectedNodeId === node.node_id ? 'scale-125' : 'hover:scale-110'
                   )}
                 >
-                  <MapPin className="w-4 h-4" />
-                </div>
+                  {/* Occupancy Ring */}
+                  {node.node_type !== 'fpo' && (
+                    <div
+                      className="absolute -inset-2 rounded-full border-2 opacity-50 pointer-events-none"
+                      style={{
+                        borderColor:
+                          status === 'Critical'
+                            ? '#c0392b'
+                            : status === 'Warning'
+                            ? '#f5b041'
+                            : '#1e847f',
+                      }}
+                    />
+                  )}
 
-                {/* Tooltip */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-2 py-1 bg-[#1a1e23] text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  {node.name}
+                  {/* Node Icon */}
+                  <div
+                    className={clsx(
+                      'p-2 rounded-full shadow-md flex items-center justify-center',
+                      node.node_type === 'fpo'
+                        ? 'bg-[#1e847f] text-white'
+                        : status === 'Critical'
+                        ? 'bg-[#c0392b] text-white'
+                        : status === 'Warning'
+                        ? 'bg-[#f5b041] text-white'
+                        : 'bg-white text-[#2d3436] border border-gray-200'
+                    )}
+                  >
+                    <MapPin className="w-4 h-4" />
+                  </div>
+
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[220px] whitespace-normal px-2 py-1 bg-[#1a1e23] text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    {node.node_name}
+                  </div>
                 </div>
-              </div>
-            </Marker>
-          ))}
+              </Marker>
+            );
+          })}
         </Map>
+
+        {!mapNodesLoading && !mapNodesComputable && (
+          <div className="absolute bottom-4 left-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-md shadow-sm pointer-events-none">
+            No mapped network topology for {activeDistrict} — showing regional context only.
+          </div>
+        )}
       </div>
     </div>
   );
